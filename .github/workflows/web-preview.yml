@@ -18,9 +18,6 @@ jobs:
     timeout-minutes: 20
     env:
       BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      XDG_DATA_HOME: ${{ runner.temp }}/godot/data
-      XDG_CONFIG_HOME: ${{ runner.temp }}/godot/config
-      XDG_CACHE_HOME: ${{ runner.temp }}/godot/cache
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +37,11 @@ jobs:
         if: steps.godot-cache.outputs.cache-hit != 'true'
         run: ./tools/install-godot.sh "$RUNNER_TEMP/godot"
       - name: Select Godot
-        run: echo "$RUNNER_TEMP/godot/bin" >> "$GITHUB_PATH"
+        run: |
+          echo "$RUNNER_TEMP/godot/bin" >> "$GITHUB_PATH"
+          echo "XDG_DATA_HOME=$RUNNER_TEMP/godot/data" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/godot/config" >> "$GITHUB_ENV"
+          echo "XDG_CACHE_HOME=$RUNNER_TEMP/godot/cache" >> "$GITHUB_ENV"
       - name: Import, smoke test, export, and package for Pages
         run: ./tools/check-web.sh
       - uses: actions/setup-node@v4

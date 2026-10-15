@@ -114,8 +114,8 @@ jobs:
           echo "CF_ALIAS_URL=https://$branch.$CF_PROJECT.pages.dev" >> "$GITHUB_ENV"
       - name: Verify Access before uploading game assets
         run: |
-          python3 tools/check-access.py --url "https://$CF_PROJECT.pages.dev" --team "$CF_ACCESS_TEAM"
-          python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM"
+          python3 tools/check-access.py --url "https://$CF_PROJECT.pages.dev" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
+          python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
       - name: Deploy Cloudflare Pages
         id: pages
         uses: cloudflare/wrangler-action@v4
@@ -129,8 +129,8 @@ jobs:
           DEPLOYMENT_URL: ${{ steps.pages.outputs.deployment-url }}
         run: |
           test -n "$DEPLOYMENT_URL"
-          python3 tools/check-access.py --url "$DEPLOYMENT_URL" --team "$CF_ACCESS_TEAM"
-          python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM"
+          python3 tools/check-access.py --url "$DEPLOYMENT_URL" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
+          python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
       - name: Publish phone acceptance links
         env:
           DEPLOYMENT_URL: ${{ steps.pages.outputs.deployment-url }}

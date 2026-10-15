@@ -31,7 +31,9 @@ class FakeCloudflare:
             return copy.deepcopy(self.project)
         if path == "/access/organizations":
             if method == "POST":
-                self.organization = {"auth_domain": "test.cloudflareaccess.com"}
+                self.organization = {"auth_domain": "test.cloudflareaccess.com", "name": "NodeNexus"}
+            if method == "PUT":
+                self.organization.update(data)
             return copy.deepcopy(self.organization)
         if path == "/access/identity_providers" and method == "POST":
             provider = {**data, "id": "otp-id"}
@@ -80,6 +82,9 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(api.policies[0]["decision"], "allow")
         self.assertEqual(api.policies[0]["include"], [{"email": {"email": "owner@example.com"}}])
         self.assertTrue(all(app["policies"] == [{"id": "owner-policy", "precedence": 1}] for app in api.apps))
+        self.assertEqual(api.organization["session_duration"], "168h")
+        self.assertEqual(api.policies[0]["session_duration"], "168h")
+        self.assertTrue(all(app["session_duration"] == "168h" for app in api.apps))
 
     def test_missing_pages_project_is_created(self):
         api = FakeCloudflare()
@@ -116,6 +121,12 @@ class SetupTests(unittest.TestCase):
             with self.subTest(email=email), self.assertRaises(ValueError):
                 bootstrap.provision(api, "nodenexus-dev", email)
         self.assertEqual(api.calls, [])
+
+    def test_unrelated_organization_session_is_not_changed(self):
+        api = FakeCloudflare()
+        api.organization = {"name": "Other work", "auth_domain": "test.cloudflareaccess.com", "session_duration": "24h"}
+        bootstrap.provision(api, "nodenexus-dev", "owner@example.com")
+        self.assertEqual(api.organization["session_duration"], "24h")
 
     def test_more_specific_application_blocks_setup(self):
         api = FakeCloudflare()

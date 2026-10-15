@@ -50,7 +50,7 @@ async function run() {
       page.on('console', message => { if (/SCRIPT ERROR:|^ERROR:/.test(message.text())) errors.push(message.text()); });
       page.on('response', response => { if (response.status() >= 400 && !response.url().endsWith('/favicon.ico')) errors.push(`HTTP ${response.status()}: ${response.url()}`); });
       await page.goto(url, { waitUntil: 'networkidle', timeout: 25000 });
-      await page.waitForFunction(() => !document.querySelector('#status'), { timeout: 20000 });
+      await page.waitForFunction(() => !document.querySelector('#status'), null, { timeout: 20000 });
       let rectangle, initial;
       for (let attempt = 0; attempt < 20; attempt++) {
         initial = await page.screenshot();
@@ -77,9 +77,34 @@ async function run() {
       assert.ok(near(image(await page.screenshot()).data, pixel, [255, 0, 0]), `${name}: second tap did not restore red`);
       const metadata = await page.request.get(`${url}/build-info.json`);
       assert.equal(metadata.status(), 200);
-      assert.match((await metadata.json()).commit, /^[0-9a-f]{40}$/);
+      const build = await metadata.json();
+      assert.match(build.commit, /^[0-9a-f]{40}$/);
+      const gzipResponse = await page.request.get(`${url}/${build.wasm}`);
+      assert.equal(gzipResponse.headers()['content-encoding'], undefined, 'gzip must be decoded explicitly, not by an origin-specific header');
+      assert.match(gzipResponse.headers()['cache-control'], /private.*immutable/);
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForFunction(() => window.nodeNexusStatus?.started, null, { timeout: 20000 });
+      const warm = await page.evaluate(wasm => {
+        const entry = performance.getEntriesByType('resource').find(item => item.name.endsWith(wasm));
+        return entry ? { transfer: entry.transferSize, size: entry.decodedBodySize } : null;
+      }, build.wasm);
+      assert.equal(await page.evaluate(() => window.nodeNexusStatus.engineCacheHit), true, `${name}: runtime cache was not reused`);
+      assert.ok(!warm || warm.transfer === 0, `${name}: engine was downloaded again instead of using browser cache`);
       assert.deepEqual(errors, [], `${name}: browser errors`);
-      console.log(`WEB_BROWSER_PASSED: ${name}, red -> green -> red, build metadata readable`);
+      console.log(`WEB_BROWSER_PASSED: ${name}, red -> green -> red, repeat load uses cached engine`);
+      await page.close();
+    }
+    for (const [name, response] of [
+      ['corrupt-gzip', { status: 200, contentType: 'application/gzip', body: 'invalid compressed bytes' }],
+      ['expired-session', { status: 200, contentType: 'text/html', body: '<html>Sign in</html>' }],
+    ]) {
+      const page = await browser.newPage();
+      await page.route('**/*.wasm.gz', route => route.fulfill(response));
+      await page.goto(url, { waitUntil: 'networkidle' });
+      await page.waitForFunction(() => window.nodeNexusStatus?.phase === 'error', null, { timeout: 10000 });
+      assert.equal(await page.locator('#retry').isVisible(), true);
+      assert.ok(await page.locator('#status-notice').textContent());
+      console.log(`WEB_FAILURE_HANDLED: ${name}, actionable error shown instead of stalled loading`);
       await page.close();
     }
   } finally {

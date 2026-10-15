@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail before upload unless unauthenticated requests go to the expected Access login."""
 import argparse
+import json
 import re
 import time
 import urllib.error
@@ -13,14 +14,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def check(base: str, team: str, attempts: int = 4) -> None:
+def check(base: str, team: str, attempts: int = 4, assets=()) -> None:
     if not re.fullmatch(r"[a-z0-9-]+\.cloudflareaccess\.com", team):
         raise ValueError("CLOUDFLARE_ACCESS_TEAM_DOMAIN must be <team>.cloudflareaccess.com (no scheme)")
     parsed = urllib.parse.urlsplit(base)
     if parsed.scheme != "https" or not parsed.hostname or parsed.path not in ("", "/") or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("Expected an HTTPS deployment origin")
     opener = urllib.request.build_opener(NoRedirect)
-    for path in ("/", "/index.wasm", "/index.pck", "/build-info.json"):
+    paths = ("/", "/index.pck", "/build-info.json", *assets) if assets else ("/", "/index.wasm", "/index.pck", "/build-info.json")
+    for path in paths:
         for attempt in range(attempts):
             if attempt:
                 time.sleep((2, 5, 10)[min(attempt - 1, 2)])
@@ -48,5 +50,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", required=True)
     parser.add_argument("--team", required=True)
+    parser.add_argument("--manifest")
     args = parser.parse_args()
-    check(args.url, args.team)
+    assets = []
+    if args.manifest:
+        with open(args.manifest) as source:
+            metadata = json.load(source)
+        for key in ("wasm", "engine", "loader"):
+            asset = metadata[key]
+            if not re.fullmatch(r"assets/(engine|loader)\.[a-f0-9]{16}\.(js|wasm\.gz)", asset):
+                raise ValueError("Unexpected runtime asset path in build manifest")
+            assets.append("/" + asset)
+    check(args.url, args.team, assets=assets)

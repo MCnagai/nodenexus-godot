@@ -10,9 +10,8 @@ class PagesHandler(SimpleHTTPRequestHandler):
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm"}
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
-        if self.path.split("?")[0] == "/index.wasm":
-            self.send_header("Content-Encoding", "gzip")
+        cache = "private, max-age=31536000, immutable" if self.path.startswith("/assets/") else "no-store"
+        self.send_header("Cache-Control", cache)
         super().end_headers()
 
 

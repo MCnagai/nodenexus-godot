@@ -43,6 +43,7 @@ Account ID と Pages プロジェクト名 `nodenexus-dev` は `.cloudflare/proj
 5. `<project>.pages.dev` と `*.<project>.pages.dev` のアプリにそのポリシーを適用。
 6. 本番ブランチを `master` に揃え、未認証の HTML/WASM/PCK/メタデータ取得が Access に転送されることを確認。
 7. 確認に成功してからゲームをアップロードし、実際のデプロイ URL の保護も検証。
+8. アプリと許可ポリシーのログイン期間を 7 日間に設定。この構築専用の NodeNexus 組織に他のアプリがない場合は、SSO の期間も 7 日間に設定します。通常の Chrome で Cookie を保持すれば期間内のメール認証を減らせます。端末・ブラウザが変わる場合や Cookie を削除した場合は再認証が必要です。
 
 既に別名で設定された Access アプリ、より細かいホスト・パスの例外、追加の許可ポリシーがある場合は、自動で上書き・削除せず停止します。初回作成と繰り返し実行、誤ったメール、保護の抜け道、API が期待した制限を返さない場合をオフラインテストしています。Cloudflare 実サービスへの適用は認証後に検証します。
 
@@ -86,7 +87,11 @@ python3 tools/serve-web.py --port 8000
 
 `tools/godot.sh` は `/workspace/.environment/activate.sh` があれば有効化します。ほかの環境では Godot 4.7.2 と同じバージョンの Web テンプレートを用意します。GitHub Actions は `tools/install-godot.sh` で SHA-512 照合後に両方を用意します。
 
-WebAssembly は Pages の 25 MiB/ファイル制限に合わせ gzip 圧縮し、`_headers` の `Content-Encoding: gzip` で配信します。圧縮済み出力は通常の `python -m http.server` で正しく配信できないため、専用の `serve-web.py` を使います。ブラウザテストはこの圧縮済みパッケージを検証します。
+WebAssembly は Pages の 25 MiB/ファイル制限に合わせ gzip 圧縮します。`assets/` 配下の指紋付きファイルとして配信し、Chrome の `DecompressionStream` で明示的に展開します。サーバーの `Content-Encoding` 上書きには依存しません。
+
+エンジンとローダーは内容に応じた名前で、認証済みブラウザ内だけの長期キャッシュを使用します。HTML、ゲームの PCK、コミット情報はキャッシュしないため、コード変更は反映されます。ロード中はダウンロード進捗と起動状態を表示し、認証切れ、破損ファイル、タイムアウト時は再読み込みボタンを表示します。
+
+ブラウザテストは圧縮済みパッケージで、初回起動・2 回目のキャッシュ利用・タップ操作・破損 gzip・認証用 HTML がゲームファイルとして返された場合を確認します。Android 実機の確認は別途必要です。
 
 ## 参考
 

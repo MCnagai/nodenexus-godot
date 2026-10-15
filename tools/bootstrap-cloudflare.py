@@ -95,6 +95,12 @@ def provision(api, project, email):
 
     applications = api.list("/access/apps")
     domains = [(f"{project}.pages.dev", "main"), (f"*.{project}.pages.dev", "previews")]
+    # This organization was created for NodeNexus. Preserve unrelated organizations.
+    own_apps_only = all(app.get("name", "").startswith(f"NodeNexus {project} ") for app in applications)
+    if organization.get("name") == "NodeNexus" and own_apps_only and organization.get("session_duration") != "168h":
+        api.request("PUT", "/access/organizations", {"name": organization["name"], "auth_domain": team, "session_duration": "168h"})
+        if api.request("GET", "/access/organizations").get("session_duration") != "168h":
+            raise RuntimeError("Cloudflare did not confirm the global session duration")
     # More-specific existing apps could override the wildcard's email restriction.
     for app in applications:
         domains_in_app = [app.get("domain", ""), *(app.get("self_hosted_domains") or [])]
@@ -109,14 +115,14 @@ def provision(api, project, email):
     matches = [policy for policy in api.list("/access/policies") if policy.get("name") == policy_name]
     if len(matches) > 1 or any(policy.get("app_count", 0) > 2 for policy in matches):
         raise RuntimeError("The owner policy is duplicated or shared with other applications; review required")
-    policy = {"name": policy_name, "decision": "allow", "include": [{"email": {"email": email}}], "exclude": [], "require": []}
+    policy = {"name": policy_name, "decision": "allow", "include": [{"email": {"email": email}}], "exclude": [], "require": [], "session_duration": "168h"}
     if matches:
         owner = api.request("PUT", f'/access/policies/{matches[0]["id"]}', policy)
     else:
         owner = api.request("POST", "/access/policies", policy)
     owner_id = owner["id"]
     verified = api.request("GET", f"/access/policies/{owner_id}")
-    if any(verified.get(key) != policy[key] for key in ("decision", "include")) or verified.get("exclude") or verified.get("require"):
+    if any(verified.get(key) != policy[key] for key in ("decision", "include", "session_duration")) or verified.get("exclude") or verified.get("require"):
         raise RuntimeError("Cloudflare did not confirm the exact owner-only policy")
 
     for domain, label in domains:
@@ -132,7 +138,7 @@ def provision(api, project, email):
             linked = api.request("GET", f'/access/apps/{app["id"]}').get("policies") or []
             if any((item if isinstance(item, str) else item.get("id")) != owner_id for item in linked):
                 raise RuntimeError("Unexpected Access policies require review; game upload blocked")
-        config = {"name": name, "domain": domain, "type": "self_hosted", "session_duration": "24h", "allowed_idps": [otp["id"]], "auto_redirect_to_identity": True, "policies": [{"id": owner_id, "precedence": 1}]}
+        config = {"name": name, "domain": domain, "type": "self_hosted", "session_duration": "168h", "allowed_idps": [otp["id"]], "auto_redirect_to_identity": True, "policies": [{"id": owner_id, "precedence": 1}]}
         if app:
             app = api.request("PUT", f'/access/apps/{app["id"]}', config)
         else:
@@ -140,9 +146,9 @@ def provision(api, project, email):
         verified_app = api.request("GET", f'/access/apps/{app["id"]}')
         linked = verified_app.get("policies") or []
         ids = [item if isinstance(item, str) else item.get("id") for item in linked]
-        if ids != [owner_id] or verified_app.get("domain") != domain:
+        if ids != [owner_id] or verified_app.get("domain") != domain or verified_app.get("session_duration") != "168h":
             raise RuntimeError("Cloudflare did not confirm the application's owner-only policy attachment")
-        print(f"ACCESS_CONFIGURED: {domain} (single-email policy)")
+        print(f"ACCESS_CONFIGURED: {domain} (single-email policy, 7-day session)")
 
     if current.get("production_branch") != "master":
         api.request("PATCH", path, {"production_branch": "master"})

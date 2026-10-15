@@ -12,11 +12,11 @@ Godot 4.7.2 / GDScript のブラウザ向けスターターです。Unity のコ
 
 - PR 作成・更新、`master` への push で Headless テストと Web ビルド。
 - Desktop / mobile エミュレーションの Chromium で赤 → 緑 → 赤の操作確認。
-- Pages 用の圧縮・サイズ検査とコミット情報の付与。
+- Pages 用の圧縮・サイズ検査とコミット情報の付与。エンジンはブラウザにキャッシュし、ロード失敗時は再試行を表示。
 - Secrets 登録後、Pages・メール認証・自分のメールだけを許可する Access を構築し、保護を確認してから `pr-<番号>` ごとの URL にデプロイ。
 - 実際のデプロイ URL の認証要求を確認し、Actions Summary と GitHub Deployments に URL を表示。
 
-認証設定不足や Access が未保護の場合は deploy job が失敗し、公開前に止まります。フォーク PR にはデプロイ権限を与えません。
+認証設定不足や Access が未保護の場合は deploy job が失敗し、公開前に止まります。ログイン期間は 7 日間で、許可メールの制限は維持します。フォーク PR にはデプロイ権限を与えません。
 
 ## 環境内の操作
 

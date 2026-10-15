@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#252525">
+<title>NodeNexus</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#252525;color:#eee;font-family:system-ui,sans-serif}#canvas{display:block;width:100%;height:100%}#status{position:fixed;inset:0;display:grid;place-content:center;gap:16px;padding:24px;text-align:center;background:#252525}#status h1{margin:0;font-size:24px}progress{width:min(300px,80vw);margin:auto;accent-color:#d56850}#status-message{margin:0;min-height:24px}#retry{padding:12px 20px;margin:auto;background:#eee;color:#222;border:0;border-radius:6px;font-size:16px}details{max-width:80vw;overflow-wrap:anywhere;font-size:12px;color:#bbb}
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0">このブラウザはゲームの表示に対応していません。</canvas>
+<div id="status" role="status"><h1>NodeNexus</h1><p id="status-message">ゲームを準備しています…</p><progress id="status-progress"></progress><button id="retry" hidden>もう一度読み込む</button><details id="error-details" hidden><summary>エラーの詳細</summary><pre id="status-notice"></pre></details></div>
+<script>window.NODE_NEXUS = __BOOT_CONFIG__;</script>
+<script src="__LOADER_SCRIPT__"></script>
+<script src="__ENGINE_SCRIPT__" onerror="window.nodeNexusFailure(new Error('エンジンを取得できませんでした。'))"></script>
+<script>window.startNodeNexus();</script>
+</body>
+</html>

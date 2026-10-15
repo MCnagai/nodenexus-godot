@@ -12,6 +12,8 @@ from pathlib import Path
 class APIError(RuntimeError):
     def __init__(self, status, codes, context="", message=""):
         self.status = status
+        self.codes = codes
+        self.api_message = message
         super().__init__(f"Cloudflare HTTP {status}, error codes {codes}, {context}. {message} No game upload was attempted.")
 
 
@@ -73,7 +75,8 @@ def provision(api, project, email):
     try:
         organization = api.request("GET", "/access/organizations")
     except APIError as error:
-        if error.status != 404:
+        disabled = error.status == 403 and 9999 in error.codes and "access.api.error.not_enabled" in error.api_message
+        if error.status != 404 and not disabled:
             raise
         organization = None
     if not organization:

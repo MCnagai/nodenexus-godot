@@ -87,6 +87,29 @@ class SetupTests(unittest.TestCase):
         bootstrap.provision(api, "nodenexus-dev", "owner@example.com")
         self.assertEqual(api.project["name"], "nodenexus-dev")
 
+    def test_access_not_enabled_still_creates_the_organization(self):
+        api = FakeCloudflare()
+        original = api.request
+        def disabled_get(method, path, data=None):
+            if method == "GET" and path == "/access/organizations" and api.organization is None:
+                raise bootstrap.APIError(403, [9999], message="access.api.error.not_enabled: Access is not enabled")
+            return original(method, path, data)
+        api.request = disabled_get
+        bootstrap.provision(api, "nodenexus-dev", "owner@example.com")
+        self.assertEqual(api.organization["auth_domain"], "test.cloudflareaccess.com")
+
+    def test_other_forbidden_responses_do_not_create_an_organization(self):
+        api = FakeCloudflare()
+        original = api.request
+        def forbidden_get(method, path, data=None):
+            if method == "GET" and path == "/access/organizations":
+                raise bootstrap.APIError(403, [10000], message="Authentication error")
+            return original(method, path, data)
+        api.request = forbidden_get
+        with self.assertRaises(bootstrap.APIError):
+            bootstrap.provision(api, "nodenexus-dev", "owner@example.com")
+        self.assertIsNone(api.organization)
+
     def test_invalid_identity_fails_before_any_api_calls(self):
         api = FakeCloudflare()
         for email in ("", "everyone", "a@example.com\nb@example.com"):

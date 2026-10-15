@@ -2,43 +2,51 @@
 
 目的は「スマホから Codex に変更を指示 → PR → 自動テスト・Web ビルド → 認証付きの PR プレビュー → Android Chrome でプレイ」です。ゲームは Godot 4.7.2 / GDScript、Compatibility レンダラー、シングルスレッド Web 出力を使用します。
 
-## 初回だけ必要なアカウント設定
+## 初回だけ必要な操作（Secrets 2 件）
 
-Cloudflare と GitHub の認証設定は、アカウント所有者がスマホのブラウザで行います。API トークンはチャットやリポジトリに貼らず、下記の GitHub Secrets に直接保存してください。
+Pages、Zero Trust 組織、メール認証、Access アプリ、本体と PR プレビューの保護設定は、GitHub Actions が API で作成・確認します。ダッシュボードで Access の設定項目を手入力する必要はありません。
 
-### 1. Cloudflare Pages プロジェクト
+ユーザーが行うのは、アカウント所有者による API トークンの発行と、GitHub Secrets への次の 2 件の保存です。トークンはチャットに貼らないでください。
 
-1. [Cloudflare](https://dash.cloudflare.com/) にログインし、Workers & Pages から **Pages の Direct Upload** プロジェクトを作成します。Workers のプロジェクトや Git 自動ビルドは選びません。ビルドは GitHub Actions が担当します。
-2. プロジェクト名と Account ID を控えます。初回アップロードを求められた場合はゲームを含まない空の HTML を使用します。ゲームの初回アップロードは Access 設定後に Actions から行います。
-3. 本番ブランチは Actions が `master` に揃えます。ダッシュボードでブランチ設定が見つからなくても手動操作は不要です。PR は `pr-1`、`pr-2` のような別ブランチへデプロイされます。
+### 1. Cloudflare API トークンを発行
 
-### 2. Cloudflare Access（公開する前に必要）
+[API トークン画面](https://dash.cloudflare.com/?to=/:account/api-tokens) から **Create Token → Custom token** を選びます。
 
-1. Zero Trust の初期登録を済ませ、チームドメイン `<team>.cloudflareaccess.com` を控えます。メールのワンタイム PIN など、スマホでログインできる認証方法を使用します。
-2. Pages プロジェクトの **Settings → General → Enable access policy** を有効にします。
-3. Access のアプリケーションを確認し、プレビュー用の **`*.<project>.pages.dev`** を保護します。パス指定を付けず、HTML、WASM、PCK、メタデータをすべて保護します。
-4. **`<project>.pages.dev`** 本体も別の Access アプリケーションで保護します。ワイルドカードだけでは本体を保護しません。ダッシュボードの手順が必要なら [公式の Known issues](https://developers.cloudflare.com/pages/platform/known-issues/#enable-access-on-your-pagesdev-domain) に従い、本体用とプレビュー用の両方を残します。
-5. それぞれの Allow ポリシーは **自分のメールアドレスだけ**を許可します。Everyone、Bypass、広いメールドメイン許可は使いません。追加のカスタムドメインはこの構成では使用しません。
-6. シークレットタブで、本体と `https://pr-1.<project>.pages.dev/` を開き、Access のログインを求められることを確認します。ログイン画面に移動せず内容が見える場合は設定を修正してください。
+- 名前：`nodenexus-github-actions`
+- 権限（すべて Account）：
+  - **Cloudflare Pages → Edit**
+  - **Access: Apps and Policies → Edit**
+  - **Access: Organizations, Identity Providers, and Groups → Edit**
+- Account Resources：NodeNexus を置くアカウント 1 件だけ。
 
-Actions はアップロード前に、本体・PR 用 URL の `/`、`/index.wasm`、`/index.pck`、`/build-info.json` が指定チームの Access ログインにリダイレクトされることを確認します。404・403・200 や別チームへの転送は合格にしません。Access が有効になるまでデプロイは失敗します。
+API ドキュメントでは Edit を Write と表記する場合があります。グローバル API キーは不要です。以前の手順で Pages Edit だけのトークンを発行した場合は、Access の 2 権限も必要です。
 
-Access のリダイレクト検証は、許可メールの範囲までは検証できません。メール制限の確認と「ログインしてプレイできること」は下記の実機受け入れで確認します。
+### 2. GitHub に Secrets を 2 件保存
 
-### 3. GitHub Secrets / Variables
+[New repository secret](https://github.com/MCnagai/nodenexus-godot/settings/secrets/actions/new) を開き、次の 2 件を保存してください。
 
-[Repository Settings → Secrets and variables → Actions](https://github.com/MCnagai/nodenexus-godot/settings/secrets/actions) をスマホで開きます。
+| Secret の名前 | 値 |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | 上で発行した API トークン |
+| `CLOUDFLARE_ACCESS_EMAIL` | ゲームへのログインを許可する、自分のメールアドレス 1 件 |
 
-| 種類 | 名前 | 値 |
-| --- | --- | --- |
-| Repository secret | `CLOUDFLARE_API_TOKEN` | 対象アカウントだけに限定した **Account → Cloudflare Pages → Edit** トークン |
-| Repository secret | `CLOUDFLARE_ACCOUNT_ID` | Pages プロジェクトの Account ID |
-| Repository variable | `CLOUDFLARE_PAGES_PROJECT` | Pages プロジェクト名（URL 全体ではない） |
-| Repository variable | `CLOUDFLARE_ACCESS_TEAM_DOMAIN` | `<team>.cloudflareaccess.com`（`https://` やパスは不要） |
+Account ID と Pages プロジェクト名 `nodenexus-dev` は `.cloudflare/project.json` に設定済みです。チームドメインは API から取得するため、入力不要です。以前に設定した `CLOUDFLARE_ACCOUNT_ID` Secret、`CLOUDFLARE_PAGES_PROJECT` Variable があればそちらを優先します。`CLOUDFLARE_ACCESS_TEAM_DOMAIN` の手入力は不要になりました。
 
-GitHub Actions を有効にし、アクションの実行が許可されていることを確認します。Workflow のデプロイ job は GitHub の `deployments: write` を指定済みです。専用の GitHub PAT は不要です。
+保存後、Codex に「Secrets 2 件を保存した」と伝えてください。Codex が再実行を進めます。以後の通常の変更では、この設定操作は不要です。
 
-初回設定が終わったら Codex に「Cloudflare の初回設定完了」と伝えてください。トークンそのものは送らないでください。設定完了後に PR へ新しいコミットを push すれば自動実行されます。この PR の workflow がまだ既定ブランチにない場合は、既存 run の再実行だけでは古い workflow が使われることがあるため、新しい push を使用します。マージ後は Actions の Run workflow でも実行できます。
+### 自動セットアップで行う処理
+
+1. Pages プロジェクトを確認し、未作成なら Direct Upload として作成。
+2. 既存の Zero Trust 組織を取得し、未作成なら API で作成。既存の組織全体の設定は変更しません。
+3. ワンタイム PIN のメール認証を確認・追加。
+4. 許可メール 1 件だけの再利用可能な Access ポリシーを作成・確認。
+5. `<project>.pages.dev` と `*.<project>.pages.dev` のアプリにそのポリシーを適用。
+6. 本番ブランチを `master` に揃え、未認証の HTML/WASM/PCK/メタデータ取得が Access に転送されることを確認。
+7. 確認に成功してからゲームをアップロードし、実際のデプロイ URL の保護も検証。
+
+既に別名で設定された Access アプリ、より細かいホスト・パスの例外、追加の許可ポリシーがある場合は、自動で上書き・削除せず停止します。初回作成と繰り返し実行、誤ったメール、保護の抜け道、API が期待した制限を返さない場合をオフラインテストしています。Cloudflare 実サービスへの適用は認証後に検証します。
+
+Cloudflare が初回の Zero Trust 登録・規約同意を要求する場合は、その本人操作だけが別途必要です。自動セットアップは有料契約や請求設定の API を呼びません。
 
 ## 日常の操作
 

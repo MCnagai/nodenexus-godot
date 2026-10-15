@@ -24,7 +24,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Test Access publication gate
-        run: python3 -m unittest discover -s tests -p 'test_access.py'
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Cache Godot and Web templates
         id: godot-cache
         uses: actions/cache@v4
@@ -83,6 +83,7 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
       CF_ACCESS_TEAM: ${{ vars.CLOUDFLARE_ACCESS_TEAM_DOMAIN }}
+      CF_ACCESS_EMAIL: ${{ secrets.CLOUDFLARE_ACCESS_EMAIL }}
       BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -93,19 +94,8 @@ jobs:
         with:
           name: godot-web-${{ github.run_id }}
           path: build/web
-      - name: Require initial Cloudflare configuration
-        run: |
-          set -euo pipefail
-          for name in CF_API_TOKEN CF_ACCOUNT_ID CF_PROJECT CF_ACCESS_TEAM; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::Missing $name. Complete the phone-only setup in docs/mobile-setup.md. No deployment was attempted."
-              exit 1
-            fi
-          done
-          if [[ ! "$CF_PROJECT" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-            echo '::error::CLOUDFLARE_PAGES_PROJECT must be a Pages project name.'
-            exit 1
-          fi
+      - name: Provision Pages and owner-only Access
+        run: python3 tools/bootstrap-cloudflare.py
       - name: Select isolated deployment branch
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -126,8 +116,6 @@ jobs:
         run: |
           python3 tools/check-access.py --url "https://$CF_PROJECT.pages.dev" --team "$CF_ACCESS_TEAM"
           python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM"
-      - name: Align Pages production branch
-        run: python3 tools/configure-pages.py
       - name: Deploy Cloudflare Pages
         id: pages
         uses: cloudflare/wrangler-action@v4

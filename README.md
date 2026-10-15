@@ -4,7 +4,7 @@ Godot 4.7.2 / GDScript のブラウザ向けスターターです。Unity のコ
 
 スマホから Codex に変更を指示し、PR ごとにビルドしたゲームを Android Chrome で確認する環境を構築しています。
 
-**初回の Cloudflare Pages / Access 認証設定と、Android 実機での受け入れ確認が必要です。未実施のデプロイ・実機確認を完了とは扱いません。**
+**初回は API トークンと許可メールを GitHub Secrets に保存する 2 件の操作が必要です。Pages / Access の構築は Actions が自動化します。未実施のデプロイ・Android 実機確認を完了とは扱いません。**
 
 セットアップと日常操作、受け入れテストは [スマホ向け手順](docs/mobile-setup.md) を参照してください。
 
@@ -13,7 +13,7 @@ Godot 4.7.2 / GDScript のブラウザ向けスターターです。Unity のコ
 - PR 作成・更新、`master` への push で Headless テストと Web ビルド。
 - Desktop / mobile エミュレーションの Chromium で赤 → 緑 → 赤の操作確認。
 - Pages 用の圧縮・サイズ検査とコミット情報の付与。
-- 初回設定後、Cloudflare Access を確認してから `pr-<番号>` ごとの URL にデプロイ。
+- Secrets 登録後、Pages・メール認証・自分のメールだけを許可する Access を構築し、保護を確認してから `pr-<番号>` ごとの URL にデプロイ。
 - 実際のデプロイ URL の認証要求を確認し、Actions Summary と GitHub Deployments に URL を表示。
 
 認証設定不足や Access が未保護の場合は deploy job が失敗し、公開前に止まります。フォーク PR にはデプロイ権限を与えません。

@@ -21,6 +21,19 @@ Connect this repository in Codex Cloud and ask for changes on branches via pull 
 4. Restrict preview access with Cloudflare Access. A public GitHub repository and/or preview URL exposes the project.
 
 ## Local verification
+In the configured cloud environment, run `./tools/check-web.sh` to import,
+test, and export with the installed Godot 4.7.2 and matching templates.
+The wrapper activates `/workspace/.environment/activate.sh` when available;
+elsewhere install the matching engine/templates and optionally set `GODOT_BIN`.
+For an individual command, use `./tools/godot.sh --headless --script res://tests/test_smoke.gd`.
+
+Cloud sandbox commands that run the editor, serve HTTP, or launch a browser need
+network permission (`network.enabled: true`). This permits local sockets and
+access through the configured proxy; it does not change the outbound allowlist.
+Without it, editor TCP listeners and proxy connections fail even though the
+environment itself is running. User data, cache, and settings use the writable
+XDG directories selected by the activation script.
+
 Install matching Godot 4.7.2 Web export templates, then:
 
 ```sh
@@ -31,5 +44,10 @@ godot --headless --path . --export-release Web build/web/index.html
 ```
 
 Serve `build/web` over HTTP(S). The mobile browser must be tested separately from CI.
+For a local preview, run `python3 -m http.server 8000 --bind 127.0.0.1 --directory build/web`
+and open `http://127.0.0.1:8000` in the same environment.
 
-The project and workflow are starter code; deployment and Android Chrome play have not yet been verified.
+Cloud verification on 2026-10-15 passed import, the GDScript smoke test, and Web
+export on Godot 4.7.2. Headless Chromium loaded the single-thread WebGL build;
+desktop clicks and touch input at a 412 × 915 mobile viewport changed the counter
+and indicator color. Android hardware and deployment have not yet been verified.

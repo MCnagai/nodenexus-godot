@@ -1,0 +1,60 @@
+name: Godot web build and preview
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  build-and-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GODOT_VERSION: 4.7.2
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot and matching export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GODOT_VERSION}-stable"
+          base="https://github.com/godotengine/godot/releases/download/${tag}"
+          curl --fail --location --retry 3 "${base}/Godot_v${tag}_linux.x86_64.zip" -o /tmp/godot.zip
+          curl --fail --location --retry 3 "${base}/Godot_v${tag}_export_templates.tpz" -o /tmp/templates.tpz
+          mkdir -p /tmp/godot-bin /tmp/godot-templates
+          unzip -q /tmp/godot.zip -d /tmp/godot-bin
+          chmod +x "/tmp/godot-bin/Godot_v${tag}_linux.x86_64"
+          sudo install -m 755 "/tmp/godot-bin/Godot_v${tag}_linux.x86_64" /usr/local/bin/godot
+          unzip -q /tmp/templates.tpz -d /tmp/godot-templates
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          cp /tmp/godot-templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+      - name: Import and validate
+        run: godot --headless --path . --import
+      - name: Smoke test
+        run: godot --headless --path . --script res://tests/test_smoke.gd
+      - name: Export Web
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release Web build/web/index.html
+          test -s build/web/index.html
+          test -s build/web/index.wasm
+      - name: Upload Web build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-web-${{ github.run_id }}
+          path: build/web/
+          retention-days: 7
+      - name: Deploy Cloudflare Pages
+        if: ${{ env.CF_API_TOKEN != '' && env.CF_ACCOUNT_ID != '' && env.CF_PROJECT != '' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy build/web --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }} --branch=${{ github.head_ref || github.ref_name }}

@@ -10,9 +10,9 @@ from pathlib import Path
 
 
 class APIError(RuntimeError):
-    def __init__(self, status, codes):
+    def __init__(self, status, codes, context="", message=""):
         self.status = status
-        super().__init__(f"Cloudflare HTTP {status}, error codes {codes}. Check token permissions and Zero Trust enrollment; no game upload was attempted.")
+        super().__init__(f"Cloudflare HTTP {status}, error codes {codes}, {context}. {message} No game upload was attempted.")
 
 
 class Cloudflare:
@@ -21,18 +21,24 @@ class Cloudflare:
         self.token = token
 
     def request(self, method, path, data=None):
-        req = urllib.request.Request(self.base + path, method=method, data=None if data is None else json.dumps(data).encode(), headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"})
+        req = urllib.request.Request(self.base + path, method=method, data=None if data is None else json.dumps(data).encode(), headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json", "User-Agent": "NodeNexus-Setup/1.0"})
         try:
             with urllib.request.urlopen(req, timeout=30) as response:
                 payload = json.load(response)
         except urllib.error.HTTPError as error:
             try:
-                codes = [item.get("code") for item in json.load(error).get("errors", [])]
+                errors = json.load(error).get("errors", [])
+                codes = [item.get("code") for item in errors]
+                message = " ".join(str(item.get("message", "")) for item in errors)
+                message = message.replace(self.token, "[redacted]")
+                message = re.sub(r"[^\s@]+@[^\s@]+", "[email]", message)
+                message = " ".join(message.split())[:300]
             except (ValueError, AttributeError):
                 codes = []
-            raise APIError(error.code, codes) from None
+                message = ""
+            raise APIError(error.code, codes, f"{method} {path}", message) from None
         if not payload.get("success"):
-            raise APIError(200, [item.get("code") for item in payload.get("errors", [])])
+            raise APIError(200, [item.get("code") for item in payload.get("errors", [])], f"{method} {path}")
         return payload.get("result")
 
     def list(self, path):

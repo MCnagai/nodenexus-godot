@@ -26,7 +26,7 @@ class AccessGateTests(unittest.TestCase):
         opener = Mock()
         opener.open.side_effect = lambda *args, **kwargs: response
         with patch.object(access.urllib.request, "build_opener", return_value=opener):
-            access.check("https://pr-1.example.pages.dev", "example.cloudflareaccess.com")
+            access.check("https://pr-1.example.pages.dev", "example.cloudflareaccess.com", attempts=1)
         return opener
 
     def test_access_login_is_required_for_each_asset(self):

@@ -41,4 +41,4 @@ text = "TAP TO CHANGE COLOR"
 [node name="Indicator" type="ColorRect" parent="Center/Stack"]
 custom_minimum_size = Vector2(420, 140)
 layout_mode = 2
-color = Color(0.18, 0.45, 0.8, 1)
+color = Color(1, 0, 0, 1)

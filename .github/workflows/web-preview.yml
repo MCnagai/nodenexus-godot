@@ -5,56 +5,142 @@ on:
     branches: [master]
   workflow_dispatch:
 
+concurrency:
+  group: godot-web-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
-  deployments: write
 
 jobs:
-  build-and-preview:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      GODOT_VERSION: 4.7.2
-      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CF_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+      BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Godot and matching export templates
-        shell: bash
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Test Access publication gate
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Cache Godot and Web templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/godot/bin
+            ${{ runner.temp }}/godot/data/godot/export_templates
+          key: godot-4.7.2-linux-web-v1
+      - name: Install verified Godot and Web templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: ./tools/install-godot.sh "$RUNNER_TEMP/godot"
+      - name: Select Godot
         run: |
-          set -euo pipefail
-          tag="${GODOT_VERSION}-stable"
-          base="https://github.com/godotengine/godot/releases/download/${tag}"
-          curl --fail --location --retry 3 "${base}/Godot_v${tag}_linux.x86_64.zip" -o /tmp/godot.zip
-          curl --fail --location --retry 3 "${base}/Godot_v${tag}_export_templates.tpz" -o /tmp/templates.tpz
-          mkdir -p /tmp/godot-bin /tmp/godot-templates
-          unzip -q /tmp/godot.zip -d /tmp/godot-bin
-          chmod +x "/tmp/godot-bin/Godot_v${tag}_linux.x86_64"
-          sudo install -m 755 "/tmp/godot-bin/Godot_v${tag}_linux.x86_64" /usr/local/bin/godot
-          unzip -q /tmp/templates.tpz -d /tmp/godot-templates
-          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
-          cp /tmp/godot-templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
-      - name: Import and validate
-        run: godot --headless --path . --import
-      - name: Smoke test
-        run: godot --headless --path . --script res://tests/test_smoke.gd
-      - name: Export Web
+          echo "$RUNNER_TEMP/godot/bin" >> "$GITHUB_PATH"
+          echo "XDG_DATA_HOME=$RUNNER_TEMP/godot/data" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/godot/config" >> "$GITHUB_ENV"
+          echo "XDG_CACHE_HOME=$RUNNER_TEMP/godot/cache" >> "$GITHUB_ENV"
+      - name: Import, smoke test, export, and package for Pages
+        run: ./tools/check-web.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install browser test dependencies
         run: |
-          mkdir -p build/web
-          godot --headless --path . --export-release Web build/web/index.html
-          test -s build/web/index.html
-          test -s build/web/index.wasm
-      - name: Upload Web build artifact
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Browser acceptance test (desktop and emulated mobile)
+        run: npm run test:web
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-${{ github.run_id }}
+          path: build/evidence/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Upload deployable Web build
         uses: actions/upload-artifact@v4
         with:
           name: godot-web-${{ github.run_id }}
           path: build/web/
           retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+      CF_ACCESS_TEAM: ${{ vars.CLOUDFLARE_ACCESS_TEAM_DOMAIN }}
+      CF_ACCESS_EMAIL: ${{ secrets.CLOUDFLARE_ACCESS_EMAIL }}
+      BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: godot-web-${{ github.run_id }}
+          path: build/web
+      - name: Provision Pages and owner-only Access
+        run: python3 tools/bootstrap-cloudflare.py
+      - name: Select isolated deployment branch
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$PR_NUMBER" ]]; then
+            branch="pr-$PR_NUMBER"
+          elif [[ "$REF_NAME" == "$DEFAULT_BRANCH" ]]; then
+            branch="$DEFAULT_BRANCH"
+          else
+            branch="manual-${BUILD_SHA:0:12}"
+          fi
+          echo "CF_BRANCH=$branch" >> "$GITHUB_ENV"
+          echo "CF_ALIAS_URL=https://$branch.$CF_PROJECT.pages.dev" >> "$GITHUB_ENV"
+      - name: Verify Access before uploading game assets
+        run: |
+          python3 tools/check-access.py --url "https://$CF_PROJECT.pages.dev" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
+          python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
       - name: Deploy Cloudflare Pages
-        if: ${{ env.CF_API_TOKEN != '' && env.CF_ACCOUNT_ID != '' && env.CF_PROJECT != '' }}
-        uses: cloudflare/wrangler-action@v3
+        id: pages
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy build/web --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }} --branch=${{ github.head_ref || github.ref_name }}
+          command: pages deploy build/web --project-name=${{ env.CF_PROJECT }} --branch=${{ env.CF_BRANCH }} --commit-hash=${{ env.BUILD_SHA }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Access on actual deployment URLs
+        env:
+          DEPLOYMENT_URL: ${{ steps.pages.outputs.deployment-url }}
+        run: |
+          test -n "$DEPLOYMENT_URL"
+          python3 tools/check-access.py --url "$DEPLOYMENT_URL" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
+          python3 tools/check-access.py --url "$CF_ALIAS_URL" --team "$CF_ACCESS_TEAM" --manifest build/web/build-info.json
+      - name: Publish phone acceptance links
+        env:
+          DEPLOYMENT_URL: ${{ steps.pages.outputs.deployment-url }}
+        run: |
+          {
+            echo '### Protected NodeNexus preview'
+            echo "- Commit: \`$BUILD_SHA\`"
+            echo "- Stable PR/branch URL: $CF_ALIAS_URL"
+            echo "- Immutable deployment URL: $DEPLOYMENT_URL"
+            echo '- Android Chrome: sign in, verify the red rectangle, tap green, tap again red.'
+            echo '- Open /build-info.json after signing in to compare the commit.'
+            echo '- Incognito without signing in must require Cloudflare Access authentication.'
+          } >> "$GITHUB_STEP_SUMMARY"

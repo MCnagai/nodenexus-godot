@@ -1,0 +1,6 @@
+{
+  "name": "nodenexus-web-checks",
+  "private": true,
+  "scripts": { "test:web": "node tests/test_web.cjs" },
+  "devDependencies": { "playwright": "1.62.1", "pngjs": "7.0.0" }
+}

@@ -41,7 +41,7 @@ async function run() {
     });
     for (const [name, options] of [
       ['desktop', { viewport: { width: 1280, height: 720 } }],
-      ['mobile', { viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }],
+      ['mobile', { viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 }],
     ]) {
       const page = await browser.newPage(options);
       const errors = [];
@@ -51,7 +51,10 @@ async function run() {
       await page.goto(url, { waitUntil: 'networkidle', timeout: 25000 });
       await page.waitForFunction(() => !document.querySelector('#status'), null, { timeout: 20000 });
       await page.waitForTimeout(500);
-      const initial = await page.screenshot();
+      const backing = await page.locator('#canvas').evaluate(canvas => ({ width: canvas.width, height: canvas.height }));
+      assert.ok(backing.width <= options.viewport.width && backing.height <= options.viewport.height,
+        `${name}: high-DPI multiplied the render target (${backing.width}x${backing.height})`);
+      const initial = await page.screenshot({ scale: 'css' });
       const rendered = image(initial);
       let grassPixels = 0;
       for (let i = 0; i < rendered.data.length; i += 4) {
@@ -78,14 +81,14 @@ async function run() {
         await page.mouse.up();
       }
       await page.waitForTimeout(300);
-      const movedNode = image(await page.screenshot());
+      const movedNode = image(await page.screenshot({ scale: 'css' }));
       const offset = (Math.round(target.y + 8) * movedNode.width + Math.round(target.x + 10)) * 4;
       assert.ok(near(movedNode.data, offset, [35, 59, 55]), `${name}: node body did not arrive at drag destination`);
-      const released = await page.screenshot();
+      const released = await page.screenshot({ scale: 'css' });
       if (!options.hasTouch) {
         await page.mouse.move(target.x + 100, target.y + 50);
         await page.waitForTimeout(150);
-        assert.ok(changedPixels(released, await page.screenshot()) < 100, 'desktop: node followed mouse after release');
+        assert.ok(changedPixels(released, await page.screenshot({ scale: 'css' })) < 100, 'desktop: node followed mouse after release');
       }
       await fs.writeFile(path.join(evidence, `${name}-node-drag.png`), released);
       if (options.hasTouch) {
@@ -98,7 +101,7 @@ async function run() {
         }
         await send('touchEnd', []);
         await page.waitForTimeout(300);
-        const panned = await page.screenshot();
+        const panned = await page.screenshot({ scale: 'css' });
         assert.ok(changedPixels(initial, panned) > 1000, 'mobile: two-finger pan did not move map');
         await send('touchStart', [point(110, 400, 0), point(240, 400, 1)]);
         for (let i = 1; i <= 8; i++) {
@@ -106,14 +109,14 @@ async function run() {
         }
         await send('touchEnd', []);
         await page.waitForTimeout(300);
-        assert.ok(changedPixels(panned, await page.screenshot()) > 1000, 'mobile: pinch did not zoom map');
+        assert.ok(changedPixels(panned, await page.screenshot({ scale: 'css' })) > 1000, 'mobile: pinch did not zoom map');
         await send('touchStart', [point(180, 400, 0)]);
         await page.waitForTimeout(650);
-        const held = await page.screenshot();
+        const held = await page.screenshot({ scale: 'css' });
         for (let i = 1; i <= 8; i++) await send('touchMove', [point(180 + i * 6, 400, 0)]);
         await send('touchEnd', []);
         await page.waitForTimeout(300);
-        assert.ok(changedPixels(held, await page.screenshot()) > 1000, 'mobile: long-press drag did not pan map');
+        assert.ok(changedPixels(held, await page.screenshot({ scale: 'css' })) > 1000, 'mobile: long-press drag did not pan map');
         await session.detach();
       } else {
         await page.mouse.move(500, 350);
@@ -121,13 +124,13 @@ async function run() {
         await page.mouse.move(650, 400, { steps: 8 });
         await page.mouse.up({ button: 'right' });
         await page.waitForTimeout(300);
-        const panned = await page.screenshot();
+        const panned = await page.screenshot({ scale: 'css' });
         assert.ok(changedPixels(initial, panned) > 1000, 'desktop: right drag did not move map');
         await page.mouse.wheel(0, -400);
         await page.waitForTimeout(300);
-        assert.ok(changedPixels(panned, await page.screenshot()) > 1000, 'desktop: wheel did not zoom map');
+        assert.ok(changedPixels(panned, await page.screenshot({ scale: 'css' })) > 1000, 'desktop: wheel did not zoom map');
       }
-      await fs.writeFile(path.join(evidence, `${name}-camera.png`), await page.screenshot());
+      await fs.writeFile(path.join(evidence, `${name}-camera.png`), await page.screenshot({ scale: 'css' }));
       const metadata = await page.request.get(`${url}/build-info.json`);
       assert.equal(metadata.status(), 200);
       const build = await metadata.json();

@@ -16,6 +16,9 @@ var camera_zoom := 1.0
 # Temporary markers; replace with the live node collection when units are implemented.
 var node_positions: Array[Vector2] = [Vector2(3000, 3000), Vector2(3300, 2800), Vector2(2600, 3200), Vector2(1500, 1800), Vector2(4700, 4400)]
 var grass: ImageTexture
+var node_style: StyleBoxFlat
+var hud_style: StyleBoxFlat
+var minimap_style: StyleBoxFlat
 var touches: Dictionary = {}
 var hold_origin := Vector2.ZERO
 var hold_elapsed := 0.0
@@ -32,6 +35,9 @@ func _ready() -> void:
     mouse_filter = Control.MOUSE_FILTER_IGNORE
     texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
     grass = _make_grass()
+    node_style = _panel(Color("233b37"))
+    hud_style = _panel(Color(0.06, 0.12, 0.10, 0.92))
+    minimap_style = _panel(Color("122b23"))
     resized.connect(_refresh)
     _refresh()
 
@@ -219,20 +225,22 @@ func _draw() -> void:
         draw_line(Vector2(visible.position.x, y * GRID), Vector2(visible.end.x, y * GRID), Color(0.8, 0.9, 0.7, 0.14), 1.0 / camera_zoom)
     for i in range(node_positions.size()):
         var point := node_positions[i]
-        draw_style_box(_panel(Color("233b37")), Rect2(point - Vector2(65, 32), Vector2(130, 64)))
+        if not visible.intersects(Rect2(point - NODE_HALF_SIZE - Vector2(6, 6), NODE_HALF_SIZE * 2 + Vector2(12, 12))):
+            continue
+        draw_style_box(node_style, Rect2(point - Vector2(65, 32), Vector2(130, 64)))
         if i == dragged_node:
             draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("e0f2b2"), false, 2.0 / camera_zoom)
         draw_circle(point + Vector2(-65, 0), 6, Color("8ee5cf"))
         draw_circle(point + Vector2(65, 0), 6, Color("8ee5cf"))
         draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
-    draw_style_box(_panel(Color(0.06, 0.12, 0.10, 0.92)), Rect2(14, 14, minf(size.x - 28, 570), 116))
+    draw_style_box(hud_style, Rect2(14, 14, minf(size.x - 28, 570), 116))
     draw_string(ThemeDB.fallback_font, Vector2(28, 40), "NodeNexus / NODE PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("d5efba"))
     draw_string(ThemeDB.fallback_font, Vector2(28, 65), "RMB drag: pan  /  Wheel: zoom", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     draw_string(ThemeDB.fallback_font, Vector2(28, 89), "Touch: 2-finger pan / pinch / hold + drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     draw_string(ThemeDB.fallback_font, Vector2(28, 113), "Node body: left drag / 1-finger drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     var mini := minimap_rect()
-    draw_style_box(_panel(Color("122b23")), mini.grow(5))
+    draw_style_box(minimap_style, mini.grow(5))
     draw_rect(mini, Color("3c5930"))
     var ratio := mini.size / MAP_SIZE
     for point in node_positions:

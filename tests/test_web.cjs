@@ -88,7 +88,7 @@ async function run() {
       if (!options.hasTouch) {
         await page.mouse.move(target.x + 100, target.y + 50);
         await page.waitForTimeout(150);
-        assert.ok(changedPixels(released, await page.screenshot({ scale: 'css' })) < 100, 'desktop: node followed mouse after release');
+        assert.ok(near(image(await page.screenshot({ scale: 'css' })).data, offset, [35, 59, 55]), 'desktop: node followed mouse after release');
       }
       await fs.writeFile(path.join(evidence, `${name}-node-drag.png`), released);
       if (options.hasTouch) {

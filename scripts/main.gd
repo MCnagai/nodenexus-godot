@@ -26,6 +26,9 @@ var hold_pending := false
 var touch_right := false
 var mouse_right := false
 var gesture_blocked := false
+var hovered_node := -1
+var mouse_present := false
+var mouse_position := Vector2.ZERO
 var dragged_node := -1
 var drag_offset := Vector2.ZERO
 var node_drag_active := false
@@ -39,6 +42,7 @@ func _ready() -> void:
     hud_style = _panel(Color(0.06, 0.12, 0.10, 0.92))
     minimap_style = _panel(Color("122b23"))
     resized.connect(_refresh)
+    get_window().mouse_exited.connect(_clear_hover)
     _refresh()
 
 func _make_grass() -> ImageTexture:
@@ -83,6 +87,20 @@ func _pick_node(screen_point: Vector2) -> int:
             return i
     return -1
 
+func _clear_hover() -> void:
+    mouse_present = false
+    if hovered_node != -1:
+        hovered_node = -1
+        queue_redraw()
+
+func _update_hover() -> void:
+    var next := -1
+    if mouse_present and touches.is_empty() and dragged_node == -1 and not mouse_right and not _over_ui(mouse_position):
+        next = _pick_node(mouse_position)
+    if next != hovered_node:
+        hovered_node = next
+        queue_redraw()
+
 func _begin_node_drag(point: Vector2, from_touch: bool) -> void:
     if _over_ui(point):
         return
@@ -91,11 +109,13 @@ func _begin_node_drag(point: Vector2, from_touch: bool) -> void:
         drag_offset = node_positions[dragged_node] - screen_to_world(point)
         drag_uses_touch = from_touch
         node_drag_active = not from_touch
+        _update_hover()
         queue_redraw()
 
 func _end_node_drag() -> void:
     dragged_node = -1
     node_drag_active = false
+    _update_hover()
     queue_redraw()
 
 func _move_node(point: Vector2) -> void:
@@ -107,6 +127,7 @@ func _refresh() -> void:
     var half := size / camera_zoom / 2.0
     camera_position.x = clampf(camera_position.x, minf(half.x, MAP_SIZE.x / 2), maxf(MAP_SIZE.x - half.x, MAP_SIZE.x / 2))
     camera_position.y = clampf(camera_position.y, minf(half.y, MAP_SIZE.y / 2), maxf(MAP_SIZE.y - half.y, MAP_SIZE.y / 2))
+    _update_hover()
     queue_redraw()
 
 func pan_screen(delta: Vector2) -> void:
@@ -131,6 +152,7 @@ func _process(delta: float) -> void:
 
 func _notification(what: int) -> void:
     if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+        _clear_hover()
         touches.clear()
         hold_pending = false
         touch_right = false
@@ -140,6 +162,7 @@ func _notification(what: int) -> void:
 
 func _input(event: InputEvent) -> void:
     if event is InputEventScreenTouch:
+        _clear_hover()
         if event.pressed:
             if touches.is_empty():
                 gesture_blocked = _over_ui(event.position)
@@ -191,6 +214,8 @@ func _input(event: InputEvent) -> void:
     elif event is InputEventMouseButton:
         if event.device == InputEvent.DEVICE_ID_EMULATION:
             return
+        mouse_present = true
+        mouse_position = event.position
         if event.button_index == MOUSE_BUTTON_RIGHT:
             mouse_right = event.pressed and not _over_ui(event.position)
             if mouse_right:
@@ -206,12 +231,16 @@ func _input(event: InputEvent) -> void:
                 zoom_at(1.12, event.position)
             elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
                 zoom_at(1.0 / 1.12, event.position)
+        _update_hover()
     elif event is InputEventMouseMotion:
         if event.device != InputEvent.DEVICE_ID_EMULATION:
+            mouse_present = true
+            mouse_position = event.position
             if mouse_right:
                 pan_screen(event.relative)
             elif dragged_node >= 0 and node_drag_active and not drag_uses_touch:
                 _move_node(event.position)
+            _update_hover()
 
 func _draw() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), Color("18241c"))
@@ -228,6 +257,8 @@ func _draw() -> void:
         if not visible.intersects(Rect2(point - NODE_HALF_SIZE - Vector2(6, 6), NODE_HALF_SIZE * 2 + Vector2(12, 12))):
             continue
         draw_style_box(node_style, Rect2(point - Vector2(65, 32), Vector2(130, 64)))
+        if i == hovered_node:
+            draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("8ee5cf"), false, 2.0 / camera_zoom)
         if i == dragged_node:
             draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("e0f2b2"), false, 2.0 / camera_zoom)
         draw_circle(point + Vector2(-65, 0), 6, Color("8ee5cf"))

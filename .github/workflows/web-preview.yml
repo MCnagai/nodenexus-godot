@@ -51,8 +51,27 @@ jobs:
           name: godot-web-${{ github.run_id }}
           path: build/web/
           retention-days: 7
+      - name: Require preview deployment configuration
+        shell: bash
+        run: |
+          missing=0
+          if [[ -z "$CF_API_TOKEN" ]]; then
+            echo "::error::Missing Actions secret CLOUDFLARE_API_TOKEN"
+            missing=1
+          fi
+          if [[ -z "$CF_ACCOUNT_ID" ]]; then
+            echo "::error::Missing Actions secret CLOUDFLARE_ACCOUNT_ID"
+            missing=1
+          fi
+          if [[ -z "$CF_PROJECT" ]]; then
+            echo "::error::Missing Actions variable CLOUDFLARE_PAGES_PROJECT"
+            missing=1
+          fi
+          if [[ "$missing" == 1 ]]; then
+            echo "Web build succeeded, but no playable preview was deployed." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - name: Deploy Cloudflare Pages
-        if: ${{ env.CF_API_TOKEN != '' && env.CF_ACCOUNT_ID != '' && env.CF_PROJECT != '' }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

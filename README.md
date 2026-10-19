@@ -11,7 +11,7 @@ A fresh Godot 4.7.2 / GDScript project for Codex-driven development and Android 
 - Camera stays inside the map; focus loss clears held inputs.
 - Headless smoke test at `tests/test_smoke.gd`.
 - GitHub Actions Web export workflow.
-- Cloudflare Pages direct-upload step **only runs after secrets/variable are configured**.
+- Cloudflare Pages preview deployment requires the configured Actions secrets and variable; missing configuration fails the workflow explicitly after preserving the Web build artifact.
 
 ## Codex
 Connect this repository in Codex Cloud and ask for changes on branches via pull requests. Consult `AGENTS.md`.
@@ -22,7 +22,7 @@ Connect this repository in Codex Cloud and ask for changes on branches via pull 
    - secret `CLOUDFLARE_API_TOKEN` with Pages Edit permission;
    - secret `CLOUDFLARE_ACCOUNT_ID`;
    - variable `CLOUDFLARE_PAGES_PROJECT` set to the exact Pages project name.
-3. Run the GitHub Actions workflow or push a branch. The deploy step is skipped until configured.
+3. Run the GitHub Actions workflow or push a branch. Missing deployment configuration is reported as a failure with the missing setting names; a successful build alone does not mean a playable preview exists.
 4. Restrict preview access with Cloudflare Access. A public GitHub repository and/or preview URL exposes the project.
 
 ## Local verification

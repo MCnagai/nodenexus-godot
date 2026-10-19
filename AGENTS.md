@@ -4,7 +4,12 @@
 - Keep Web compatible with Android Chrome: Compatibility renderer and single-thread Web export.
 - Work in focused branches and pull requests, not directly on the default branch.
 - Do not invent gameplay mechanics or redesign features without the user's request.
-- In the managed workspace, source `/workspace/.environment/activate.sh` before running Godot when that file exists. It selects the prepared Godot 4.7.2 binary and Web templates via PATH and XDG_DATA_HOME; verify `godot --version`.
-- Use `bash tools/verify.sh` for local verification: it activates the prepared environment, checks Godot 4.7.2, imports, runs the smoke test, and exports Web. If an engine or template appears missing, inspect the existing activation/setup paths before reporting it as uninstalled.
+- Run headless import and the smoke test, and Web export when templates are available.
+- Use `tools/check-web.sh` for these checks and `tools/godot.sh` for individual commands; the wrapper activates the managed runtime and verifies Godot 4.7.2.
+- Run `npm run test:web` against the packaged output to check gzip delivery, map rendering, camera pan/zoom, and desktop/mobile input. Use `tools/serve-web.py` for local previews.
+- Preserve the pre-upload Cloudflare Access gate. Required initial account setup and Android acceptance are documented in `docs/mobile-setup.md`; do not mark deployment or real-device play complete without evidence.
+- In the managed sandbox, request `network.enabled: true` for editor imports, exports, local HTTP previews, and browser checks. Without socket access, Godot's editor reports TCP listener errors and the HTTP proxy is unreachable. Keep the configured proxy and TLS verification enabled.
 - Never commit credentials or generated builds.
 - Explain tests performed and limitations in each PR.
+
+- Before starting a new feature, inspect open prerequisite PRs and preserve their runtime/deployment setup. PR #1 supplies the prepared runtime, Web loader, and protected Pages deployment; these must be included even while the default branch still has the starter workflow.

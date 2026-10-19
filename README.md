@@ -3,7 +3,12 @@
 A fresh Godot 4.7.2 / GDScript project for Codex-driven development and Android Chrome playtesting. No Unity code has been transferred.
 
 ## Current state
-- Tap-responsive Godot 2D smoke-test scene.
+- Camera prototype with repeating procedural grass, a 100-unit grid, and temporary node markers.
+- Minimap shows the whole 6000 × 6000 map, node markers, and the current viewport.
+- Desktop: right-button drag to pan; wheel to zoom around the pointer (30–250%).
+- Touch: two-finger drag to pan, pinch to zoom; hold still for 0.5 seconds to invoke the same context signal as right-click, then drag to pan. Moving more than 12 logical pixels cancels the hold.
+- Single-finger movement is reserved for future node interactions. Minimap is display-only.
+- Camera stays inside the map; focus loss clears held inputs.
 - Headless smoke test at `tests/test_smoke.gd`.
 - GitHub Actions Web export workflow.
 - Cloudflare Pages direct-upload step **only runs after secrets/variable are configured**.
@@ -33,3 +38,5 @@ godot --headless --path . --export-release Web build/web/index.html
 Serve `build/web` over HTTP(S). The mobile browser must be tested separately from CI.
 
 The project and workflow are starter code; deployment and Android Chrome play have not yet been verified.
+
+Camera changes were validated locally with Godot 4.6.3 (the installed version); the repository targets 4.7.2. Android Chrome gesture behavior still needs device testing.

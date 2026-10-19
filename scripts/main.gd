@@ -8,6 +8,8 @@ const MIN_ZOOM := 0.3
 const MAX_ZOOM := 2.5
 const HOLD_SECONDS := 0.5
 const HOLD_SLOP := 12.0
+const NODE_HALF_SIZE := Vector2(65, 32)
+const PORT_HIT_RADIUS := 12.0
 
 var camera_position := MAP_SIZE / 2.0
 var camera_zoom := 1.0
@@ -21,6 +23,10 @@ var hold_pending := false
 var touch_right := false
 var mouse_right := false
 var gesture_blocked := false
+var dragged_node := -1
+var drag_offset := Vector2.ZERO
+var node_drag_active := false
+var drag_uses_touch := false
 
 func _ready() -> void:
     mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -56,6 +62,41 @@ func minimap_rect() -> Rect2:
     var side := minf(190.0, minf(size.x * 0.28, size.y * 0.32))
     return Rect2(size - Vector2(side + 18, side + 18), Vector2(side, side))
 
+func _over_ui(point: Vector2) -> bool:
+    return minimap_rect().grow(5).has_point(point) or Rect2(14, 14, minf(size.x - 28, 570), 116).has_point(point)
+
+func _pick_node(screen_point: Vector2) -> int:
+    var point := screen_to_world(screen_point)
+    # Last drawn node wins when bodies overlap. Ports are reserved for wiring.
+    for i in range(node_positions.size() - 1, -1, -1):
+        var center := node_positions[i]
+        if Rect2(center - NODE_HALF_SIZE, NODE_HALF_SIZE * 2).has_point(point):
+            for side in [-1, 1]:
+                if point.distance_to(center + Vector2(side * NODE_HALF_SIZE.x, 0)) <= PORT_HIT_RADIUS:
+                    return -1
+            return i
+    return -1
+
+func _begin_node_drag(point: Vector2, from_touch: bool) -> void:
+    if _over_ui(point):
+        return
+    dragged_node = _pick_node(point)
+    if dragged_node >= 0:
+        drag_offset = node_positions[dragged_node] - screen_to_world(point)
+        drag_uses_touch = from_touch
+        node_drag_active = not from_touch
+        queue_redraw()
+
+func _end_node_drag() -> void:
+    dragged_node = -1
+    node_drag_active = false
+    queue_redraw()
+
+func _move_node(point: Vector2) -> void:
+    var target := screen_to_world(point) + drag_offset
+    node_positions[dragged_node] = target.clamp(NODE_HALF_SIZE, MAP_SIZE - NODE_HALF_SIZE)
+    queue_redraw()
+
 func _refresh() -> void:
     var half := size / camera_zoom / 2.0
     camera_position.x = clampf(camera_position.x, minf(half.x, MAP_SIZE.x / 2), maxf(MAP_SIZE.x - half.x, MAP_SIZE.x / 2))
@@ -78,6 +119,7 @@ func _process(delta: float) -> void:
         if hold_elapsed >= HOLD_SECONDS:
             hold_pending = false
             touch_right = true
+            _end_node_drag()
             context_pressed.emit(screen_to_world(hold_origin))
             queue_redraw()
 
@@ -88,19 +130,25 @@ func _notification(what: int) -> void:
         touch_right = false
         mouse_right = false
         gesture_blocked = false
+        _end_node_drag()
 
 func _input(event: InputEvent) -> void:
     if event is InputEventScreenTouch:
         if event.pressed:
             if touches.is_empty():
-                gesture_blocked = minimap_rect().has_point(event.position)
+                gesture_blocked = _over_ui(event.position)
             touches[event.index] = event.position
             hold_pending = touches.size() == 1 and not gesture_blocked
             hold_elapsed = 0.0
             hold_origin = event.position
             touch_right = false
+            if touches.size() == 1 and not gesture_blocked:
+                _begin_node_drag(event.position, true)
+            else:
+                _end_node_drag()
         else:
             touches.erase(event.index)
+            _end_node_drag()
             hold_pending = false
             touch_right = false
             if touches.is_empty():
@@ -125,6 +173,12 @@ func _input(event: InputEvent) -> void:
             if touches.size() == 1 and not gesture_blocked:
                 if touch_right:
                     pan_screen(event.position - previous)
+                elif dragged_node >= 0 and drag_uses_touch:
+                    if event.position.distance_to(hold_origin) > HOLD_SLOP:
+                        node_drag_active = true
+                        hold_pending = false
+                    if node_drag_active:
+                        _move_node(event.position)
                 elif event.position.distance_to(hold_origin) > HOLD_SLOP:
                     hold_pending = false
         get_viewport().set_input_as_handled()
@@ -132,17 +186,26 @@ func _input(event: InputEvent) -> void:
         if event.device == InputEvent.DEVICE_ID_EMULATION:
             return
         if event.button_index == MOUSE_BUTTON_RIGHT:
-            mouse_right = event.pressed and not minimap_rect().has_point(event.position)
+            mouse_right = event.pressed and not _over_ui(event.position)
             if mouse_right:
+                _end_node_drag()
                 context_pressed.emit(screen_to_world(event.position))
-        elif event.pressed and not minimap_rect().has_point(event.position):
+        elif event.button_index == MOUSE_BUTTON_LEFT:
+            if event.pressed and not mouse_right and touches.is_empty():
+                _begin_node_drag(event.position, false)
+            elif not event.pressed and not drag_uses_touch:
+                _end_node_drag()
+        elif event.pressed and not _over_ui(event.position):
             if event.button_index == MOUSE_BUTTON_WHEEL_UP:
                 zoom_at(1.12, event.position)
             elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
                 zoom_at(1.0 / 1.12, event.position)
     elif event is InputEventMouseMotion:
-        if event.device != InputEvent.DEVICE_ID_EMULATION and mouse_right:
-            pan_screen(event.relative)
+        if event.device != InputEvent.DEVICE_ID_EMULATION:
+            if mouse_right:
+                pan_screen(event.relative)
+            elif dragged_node >= 0 and node_drag_active and not drag_uses_touch:
+                _move_node(event.position)
 
 func _draw() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), Color("18241c"))
@@ -157,14 +220,17 @@ func _draw() -> void:
     for i in range(node_positions.size()):
         var point := node_positions[i]
         draw_style_box(_panel(Color("233b37")), Rect2(point - Vector2(65, 32), Vector2(130, 64)))
+        if i == dragged_node:
+            draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("e0f2b2"), false, 2.0 / camera_zoom)
         draw_circle(point + Vector2(-65, 0), 6, Color("8ee5cf"))
         draw_circle(point + Vector2(65, 0), 6, Color("8ee5cf"))
         draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
-    draw_style_box(_panel(Color(0.06, 0.12, 0.10, 0.92)), Rect2(14, 14, minf(size.x - 28, 570), 92))
-    draw_string(ThemeDB.fallback_font, Vector2(28, 40), "NodeNexus / CAMERA PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("d5efba"))
+    draw_style_box(_panel(Color(0.06, 0.12, 0.10, 0.92)), Rect2(14, 14, minf(size.x - 28, 570), 116))
+    draw_string(ThemeDB.fallback_font, Vector2(28, 40), "NodeNexus / NODE PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("d5efba"))
     draw_string(ThemeDB.fallback_font, Vector2(28, 65), "RMB drag: pan  /  Wheel: zoom", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     draw_string(ThemeDB.fallback_font, Vector2(28, 89), "Touch: 2-finger pan / pinch / hold + drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+    draw_string(ThemeDB.fallback_font, Vector2(28, 113), "Node body: left drag / 1-finger drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     var mini := minimap_rect()
     draw_style_box(_panel(Color("122b23")), mini.grow(5))
     draw_rect(mini, Color("3c5930"))

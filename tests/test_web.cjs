@@ -60,6 +60,34 @@ async function run() {
       await fs.writeFile(path.join(evidence, `${name}-map.png`), initial);
       assert.ok(grassPixels > rendered.width * rendered.height * 0.3, `${name}: grass map did not render`);
       await fs.writeFile(path.join(evidence, `${name}-map.png`), initial);
+      // Move the center node before exercising the independent camera gestures.
+      const source = { x: options.viewport.width / 2, y: options.viewport.height / 2 };
+      const target = { x: source.x + (options.hasTouch ? 70 : 140), y: source.y + 50 };
+      if (options.hasTouch) {
+        const session = await page.context().newCDPSession(page);
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...source, id: 0 }] });
+        for (let i = 1; i <= 8; i++) {
+          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: source.x + (target.x - source.x) * i / 8, y: source.y + 50 * i / 8, id: 0 }] });
+        }
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await session.detach();
+      } else {
+        await page.mouse.move(source.x, source.y);
+        await page.mouse.down();
+        await page.mouse.move(target.x, target.y, { steps: 8 });
+        await page.mouse.up();
+      }
+      await page.waitForTimeout(300);
+      const movedNode = image(await page.screenshot());
+      const offset = (Math.round(target.y + 8) * movedNode.width + Math.round(target.x + 10)) * 4;
+      assert.ok(near(movedNode.data, offset, [35, 59, 55]), `${name}: node body did not arrive at drag destination`);
+      const released = await page.screenshot();
+      if (!options.hasTouch) {
+        await page.mouse.move(target.x + 100, target.y + 50);
+        await page.waitForTimeout(150);
+        assert.ok(changedPixels(released, await page.screenshot()) < 100, 'desktop: node followed mouse after release');
+      }
+      await fs.writeFile(path.join(evidence, `${name}-node-drag.png`), released);
       if (options.hasTouch) {
         const session = await page.context().newCDPSession(page);
         const send = (type, points) => session.send('Input.dispatchTouchEvent', { type, touchPoints: points });
@@ -116,7 +144,7 @@ async function run() {
       assert.equal(await page.evaluate(() => window.nodeNexusStatus.engineCacheHit), true, `${name}: runtime cache was not reused`);
       assert.ok(!warm || warm.transfer === 0, `${name}: engine was downloaded again instead of using browser cache`);
       assert.deepEqual(errors, [], `${name}: browser errors`);
-      console.log(`WEB_BROWSER_PASSED: ${name}, map pan and zoom, repeat load uses cached engine`);
+      console.log(`WEB_BROWSER_PASSED: ${name}, node drag, map pan and zoom, repeat load uses cached engine`);
       await page.close();
     }
     for (const [name, response] of [

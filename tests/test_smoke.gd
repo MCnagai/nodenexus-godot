@@ -70,6 +70,68 @@ func _run() -> void:
     check(not scene.touch_right, "Remaining finger triggered accidental hold")
     scene._notification(MainLoop.NOTIFICATION_APPLICATION_FOCUS_OUT)
     check(scene.touches.is_empty() and not scene.mouse_right, "Focus loss left input active")
+    # Drag in world coordinates at a non-default zoom, preserving grab offset.
+    scene.camera_position = start
+    scene.camera_zoom = 2.0
+    var node_start: Vector2 = scene.node_positions[0]
+    var grab: Vector2 = scene.size / 2 + Vector2(20, 10)
+    button.button_index = MOUSE_BUTTON_LEFT
+    button.position = grab
+    button.pressed = true
+    scene._input(button)
+    motion.position = grab + Vector2(160, 80)
+    scene._input(motion)
+    check(scene.node_positions[0].is_equal_approx(node_start + Vector2(80, 40)), "Mouse node drag lost zoom/offset")
+    check(scene.camera_position.is_equal_approx(start), "Node drag moved camera")
+    button.pressed = false
+    scene._input(button)
+    var released: Vector2 = scene.node_positions[0]
+    motion.position += Vector2(100, 0)
+    scene._input(motion)
+    check(scene.node_positions[0] == released and scene.dragged_node == -1, "Node kept following after release")
+    scene.node_positions[0] = node_start
+    scene.camera_zoom = 1.0
+    button.position = scene.size / 2 + Vector2(64, 0)
+    button.pressed = true
+    scene._input(button)
+    check(scene.dragged_node == -1, "Port started body drag")
+    button.pressed = false
+    scene._input(button)
+    var center: Vector2 = scene.size / 2
+    touch(scene, 0, center, true)
+    drag(scene, 0, center + Vector2(5, 0))
+    check(scene.node_positions[0] == node_start, "Touch jitter moved node")
+    drag(scene, 0, center + Vector2(80, 40))
+    check(scene.node_positions[0].is_equal_approx(node_start + Vector2(80, 40)), "Single-finger node drag failed")
+    scene._process(0.6)
+    check(not scene.touch_right, "Node drag became long press")
+    touch(scene, 1, center + Vector2(200, 0), true)
+    check(scene.dragged_node == -1, "Second finger did not cancel node drag")
+    var two_finger_node: Vector2 = scene.node_positions[0]
+    drag(scene, 1, center + Vector2(240, 0))
+    touch(scene, 1, center + Vector2(240, 0), false)
+    drag(scene, 0, center + Vector2(100, 50))
+    check(scene.node_positions[0] == two_finger_node, "Node moved during/after two-finger gesture")
+    touch(scene, 0, center + Vector2(100, 50), false)
+    scene.camera_position = start
+    scene.camera_zoom = 1.0
+    scene.node_positions[0] = node_start
+    touch(scene, 0, center, true)
+    scene._process(0.6)
+    check(scene.touch_right and scene.dragged_node == -1, "Hold on node did not switch to RMB")
+    drag(scene, 0, center + Vector2(80, 0))
+    check(scene.node_positions[0] == node_start, "Hold camera gesture moved node")
+    scene._notification(MainLoop.NOTIFICATION_APPLICATION_FOCUS_OUT)
+    check(scene.dragged_node == -1, "Focus loss did not cancel node drag")
+    scene.camera_position = start
+    button.position = center
+    button.pressed = true
+    scene._input(button)
+    motion.position = Vector2(-100000, -100000)
+    scene._input(motion)
+    check(scene.node_positions[0] == scene.NODE_HALF_SIZE, "Node escaped map bounds")
+    button.pressed = false
+    scene._input(button)
     scene.zoom_at(10000.0, scene.size / 2)
     check(is_equal_approx(scene.camera_zoom, scene.MAX_ZOOM), "Maximum zoom failed")
     scene.zoom_at(0.00001, scene.size / 2)

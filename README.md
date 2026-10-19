@@ -34,6 +34,6 @@ python3 tools/serve-web.py --port 8000
 
 ## Camera prototype
 
-Repeating procedural grass, a 100-unit grid, temporary node markers, and a minimap showing nodes and the current viewport. Right-button drag pans; the wheel zooms around the pointer (30–250%). On touch screens, use two-finger pan and pinch zoom, or hold still for 0.5 seconds then drag. Moving before the hold completes cancels it. Minimap is display-only; single-finger dragging is reserved for future node interactions.
+Repeating procedural grass, a 100-unit grid, temporary node markers, and a minimap showing nodes and the current viewport. Right-button drag pans; the wheel zooms around the pointer (30–250%). On touch screens, use two-finger pan and pinch zoom, or hold still for 0.5 seconds then drag. Moving before the hold completes cancels it. Minimap is display-only and follows node movement. Drag a node body with the left mouse button or one finger to reposition it; the grab offset is preserved at every zoom. Ports are reserved for future connections. Two fingers or a stationary long press cancel node dragging and switch to camera controls. Nodes stay within the map; releasing or losing focus ends the drag.
 
 The runtime and protected deployment setup from prerequisite PR #1 are included in this branch; new features must preserve that setup even before it reaches the default branch.

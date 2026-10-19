@@ -26,7 +26,9 @@ Connect this repository in Codex Cloud and ask for changes on branches via pull 
 4. Restrict preview access with Cloudflare Access. A public GitHub repository and/or preview URL exposes the project.
 
 ## Local verification
-Install matching Godot 4.7.2 Web export templates, then:
+
+Run `bash tools/verify.sh` to activate the prepared environment, verify the engine version, and run all checks including Web export. It stops on the first failure.
+In the prepared managed workspace, run `source /workspace/.environment/activate.sh` first to select Godot 4.7.2 and its installed Web templates. Elsewhere, install matching Godot 4.7.2 Web export templates, then:
 
 ```sh
 godot --headless --path . --import
@@ -39,4 +41,4 @@ Serve `build/web` over HTTP(S). The mobile browser must be tested separately fro
 
 The project and workflow are starter code; deployment and Android Chrome play have not yet been verified.
 
-Camera changes were validated locally with Godot 4.6.3 (the installed version); the repository targets 4.7.2. Android Chrome gesture behavior still needs device testing.
+Camera changes were validated with the prepared Godot 4.7.2 environment: headless import, smoke test, and Web export. Android Chrome gesture behavior still needs device testing.

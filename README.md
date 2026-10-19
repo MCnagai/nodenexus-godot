@@ -39,3 +39,7 @@ Repeating procedural grass, a 100-unit grid, temporary node markers, and a minim
 The runtime and protected deployment setup from prerequisite PR #1 are included in this branch; new features must preserve that setup even before it reaches the default branch.
 
 The Web prototype renders at CSS-pixel resolution instead of multiplying the render target by the screen pixel density. This reduces GPU load on high-DPI phones at the cost of some sharpness. Browser checks include a 3× density mobile viewport and verify the backing resolution stays bounded. Node/HUD styles are reused and off-screen node bodies are culled.
+
+## Debug combat
+
+Use the top-right debug menu to create allies (10.0 HP, one output on the right) and enemies (8.0 HP, one input on the left). Drag between opposite ports with the left mouse button or one finger; release on empty space to cancel. Connected units each lose 1.0 HP per second, continuously, with one-decimal labels and smooth bars. At zero HP each unit returns to its own maximum and combat continues. A repeated connection does not stack damage; one output can target one enemy, and connecting it elsewhere replaces that target. Connections follow moved units. This is a debug-only loop, without equipment or damage rules. Reloading resets the scene.

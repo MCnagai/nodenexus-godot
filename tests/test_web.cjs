@@ -146,8 +146,43 @@ async function run() {
       }, build.wasm);
       assert.equal(await page.evaluate(() => window.nodeNexusStatus.engineCacheHit), true, `${name}: runtime cache was not reused`);
       assert.ok(!warm || warm.transfer === 0, `${name}: engine was downloaded again instead of using browser cache`);
+      await page.waitForTimeout(400);
+      // Reload reset the camera: generate a pair through the visible debug menu.
+      const worldScale = options.viewport.width / 1280;
+      const uiScale = Math.min(3, 1 / worldScale);
+      const uiX = options.viewport.width - 114 * uiScale * worldScale;
+      const activate = async (x, y) => options.hasTouch ? page.touchscreen.tap(x, y) : page.mouse.click(x, y);
+      await activate(uiX, 72 * uiScale * worldScale);
+      await activate(uiX, 130 * uiScale * worldScale);
+      await page.waitForTimeout(300);
+      const portY = options.viewport.height / 2 + 140 * worldScale;
+      const outX = options.viewport.width / 2 - 105 * worldScale;
+      const inX = options.viewport.width / 2 + 105 * worldScale;
+      if (options.hasTouch) {
+        const session = await page.context().newCDPSession(page);
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: outX, y: portY, id: 0 }] });
+        for (let i = 1; i <= 8; i++) await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: outX + (inX - outX) * i / 8, y: portY, id: 0 }] });
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await session.detach();
+      } else {
+        await page.mouse.move(outX, portY);
+        await page.mouse.down();
+        await page.mouse.move(inX, portY, { steps: 8 });
+        await page.mouse.up();
+      }
+      await page.waitForTimeout(300);
+      const connected = image(await page.screenshot({ scale: 'css' }));
+      await fs.writeFile(path.join(evidence, `${name}-wire.png`), await page.screenshot({ scale: 'css' }));
+      const wirePixel = (Math.round(portY) * connected.width + Math.round(options.viewport.width / 2)) * 4;
+      assert.ok(near(connected.data, wirePixel, [224, 242, 178]), `${name}: debug ports did not create a visible connection`);
+      const hpArea = { x: Math.floor(options.viewport.width / 2 - 225 * worldScale), y: Math.floor(portY - 24 * worldScale), width: Math.ceil(110 * worldScale), height: Math.ceil(52 * worldScale) };
+      const hpBefore = await page.screenshot({ clip: hpArea, scale: 'css' });
+      await page.waitForTimeout(1300);
+      const hpAfter = await page.screenshot({ clip: hpArea, scale: 'css' });
+      assert.ok(changedPixels(hpBefore, hpAfter) > 3, `${name}: connected unit HP display did not change`);
+      await fs.writeFile(path.join(evidence, `${name}-combat.png`), await page.screenshot({ scale: 'css' }));
       assert.deepEqual(errors, [], `${name}: browser errors`);
-      console.log(`WEB_BROWSER_PASSED: ${name}, node drag, map pan and zoom, repeat load uses cached engine`);
+      console.log(`WEB_BROWSER_PASSED: ${name}, debug spawn/wiring/HP, node drag, map pan and zoom, repeat load uses cached engine`);
       await page.close();
     }
     for (const [name, response] of [

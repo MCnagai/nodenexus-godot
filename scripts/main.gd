@@ -1,5 +1,7 @@
 extends Control
 
+const DebugUnit = preload("res://scripts/debug_unit.gd")
+
 signal context_pressed(world_position: Vector2)
 
 const MAP_SIZE := Vector2(6000, 6000)
@@ -15,6 +17,12 @@ var camera_position := MAP_SIZE / 2.0
 var camera_zoom := 1.0
 # Temporary markers; replace with the live node collection when units are implemented.
 var node_positions: Array[Vector2] = [Vector2(3000, 3000), Vector2(3300, 2800), Vector2(2600, 3200), Vector2(1500, 1800), Vector2(4700, 4400)]
+var units: Dictionary = {}
+# One connection per debug output; replacing a connection changes its target.
+var connections: Dictionary = {}
+var wire_from := -1
+var wire_pointer := Vector2.ZERO
+var wire_uses_touch := false
 var grass: ImageTexture
 var node_style: StyleBoxFlat
 var hud_style: StyleBoxFlat
@@ -72,8 +80,97 @@ func minimap_rect() -> Rect2:
     var side := minf(190.0, minf(size.x * 0.28, size.y * 0.32))
     return Rect2(size - Vector2(side + 18, side + 18), Vector2(side, side))
 
+func debug_ui_scale() -> float:
+    return clampf(size.x / maxf(1.0, get_window().size.x), 1.0, 3.0)
+
+func debug_menu_rect() -> Rect2:
+    var scale := debug_ui_scale()
+    return Rect2(Vector2(size.x - 214 * scale, 14 * scale), Vector2(200, 152) * scale)
+
+func debug_button_rect(friendly: bool) -> Rect2:
+    var menu := debug_menu_rect()
+    var scale := debug_ui_scale()
+    return Rect2(menu.position + Vector2(12, 36 if friendly else 94) * scale, Vector2(176, 44) * scale)
+
+func _debug_ui_press(point: Vector2) -> void:
+    if debug_button_rect(true).has_point(point):
+        spawn_unit(true)
+    elif debug_button_rect(false).has_point(point):
+        spawn_unit(false)
+
+func spawn_unit(friendly: bool) -> int:
+    var index := node_positions.size()
+    var side := -1.0 if friendly else 1.0
+    var count := 0
+    for unit in units.values():
+        if unit.friendly == friendly:
+            count += 1
+    var offset := Vector2(side * 170, 140 + (count % 4) * 100) / camera_zoom
+    var point := (camera_position + offset).clamp(NODE_HALF_SIZE, MAP_SIZE - NODE_HALF_SIZE)
+    node_positions.append(point)
+    units[index] = DebugUnit.new(friendly)
+    queue_redraw()
+    return index
+
+func port_position(index: int) -> Vector2:
+    var side := 1.0 if units[index].friendly else -1.0
+    return node_positions[index] + Vector2(side * NODE_HALF_SIZE.x, 0)
+
+func _pick_port(point: Vector2) -> int:
+    if _over_ui(point):
+        return -1
+    var world := screen_to_world(point)
+    for index in range(node_positions.size() - 1, -1, -1):
+        if units.has(index) and world.distance_to(port_position(index)) <= maxf(PORT_HIT_RADIUS, 14.0 * debug_ui_scale() / camera_zoom):
+            return index
+    return -1
+
+func _begin_wire(point: Vector2, from_touch: bool) -> bool:
+    var index := _pick_port(point)
+    if index == -1:
+        return false
+    wire_from = index
+    wire_pointer = point
+    wire_uses_touch = from_touch
+    hold_pending = false
+    _end_node_drag()
+    queue_redraw()
+    return true
+
+func _cancel_wire() -> void:
+    if wire_from != -1:
+        wire_from = -1
+        queue_redraw()
+
+func _finish_wire(point: Vector2) -> void:
+    if wire_from == -1:
+        return
+    var target := _pick_port(point)
+    if target != -1 and units[wire_from].friendly != units[target].friendly:
+        var source: int = wire_from if units[wire_from].friendly else target
+        var destination: int = target if units[wire_from].friendly else wire_from
+        connections[source] = destination
+    _cancel_wire()
+
+func _tick_combat(delta: float) -> void:
+    var active: Dictionary = {}
+    for source in connections:
+        active[source] = true
+        active[connections[source]] = true
+    for index in active:
+        units[index].tick(delta)
+    if not active.is_empty():
+        queue_redraw()
+
+func _draw_wire(source: Vector2, target: Vector2, color: Color) -> void:
+    var bend := maxf(50.0, absf(target.x - source.x) * 0.5)
+    var curve := Curve2D.new()
+    curve.add_point(source, Vector2.ZERO, Vector2(bend, 0))
+    curve.add_point(target, Vector2(-bend, 0))
+    draw_polyline(curve.get_baked_points(), color, 2.5 * debug_ui_scale() / camera_zoom, true)
+
 func _over_ui(point: Vector2) -> bool:
-    return minimap_rect().grow(5).has_point(point) or Rect2(14, 14, minf(size.x - 28, 570), 116).has_point(point)
+    return debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or Rect2(14, 14, minf(size.x - 28, 570), 116).has_point(point)
 
 func _pick_node(screen_point: Vector2) -> int:
     var point := screen_to_world(screen_point)
@@ -81,9 +178,13 @@ func _pick_node(screen_point: Vector2) -> int:
     for i in range(node_positions.size() - 1, -1, -1):
         var center := node_positions[i]
         if Rect2(center - NODE_HALF_SIZE, NODE_HALF_SIZE * 2).has_point(point):
-            for side in [-1, 1]:
-                if point.distance_to(center + Vector2(side * NODE_HALF_SIZE.x, 0)) <= PORT_HIT_RADIUS:
+            if units.has(i):
+                if point.distance_to(port_position(i)) <= PORT_HIT_RADIUS:
                     return -1
+            else:
+                for side in [-1, 1]:
+                    if point.distance_to(center + Vector2(side * NODE_HALF_SIZE.x, 0)) <= PORT_HIT_RADIUS:
+                        return -1
             return i
     return -1
 
@@ -95,7 +196,7 @@ func _clear_hover() -> void:
 
 func _update_hover() -> void:
     var next := -1
-    if mouse_present and touches.is_empty() and dragged_node == -1 and not mouse_right and not _over_ui(mouse_position):
+    if mouse_present and touches.is_empty() and dragged_node == -1 and wire_from == -1 and not mouse_right and not _over_ui(mouse_position):
         next = _pick_node(mouse_position)
     if next != hovered_node:
         hovered_node = next
@@ -141,6 +242,7 @@ func zoom_at(factor: float, anchor: Vector2) -> void:
     _refresh()
 
 func _process(delta: float) -> void:
+    _tick_combat(delta)
     if hold_pending and touches.size() == 1:
         hold_elapsed += delta
         if hold_elapsed >= HOLD_SECONDS:
@@ -153,6 +255,7 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
     if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
         _clear_hover()
+        _cancel_wire()
         touches.clear()
         hold_pending = false
         touch_right = false
@@ -171,11 +274,19 @@ func _input(event: InputEvent) -> void:
             hold_elapsed = 0.0
             hold_origin = event.position
             touch_right = false
-            if touches.size() == 1 and not gesture_blocked:
-                _begin_node_drag(event.position, true)
+            if touches.size() == 1:
+                if gesture_blocked:
+                    _debug_ui_press(event.position)
+                elif not _begin_wire(event.position, true):
+                    _begin_node_drag(event.position, true)
             else:
+                _cancel_wire()
                 _end_node_drag()
         else:
+            if not event.canceled and wire_uses_touch:
+                _finish_wire(event.position)
+            else:
+                _cancel_wire()
             touches.erase(event.index)
             _end_node_drag()
             hold_pending = false
@@ -200,7 +311,10 @@ func _input(event: InputEvent) -> void:
         else:
             touches[event.index] = event.position
             if touches.size() == 1 and not gesture_blocked:
-                if touch_right:
+                if wire_from != -1 and wire_uses_touch:
+                    wire_pointer = event.position
+                    queue_redraw()
+                elif touch_right:
                     pan_screen(event.position - previous)
                 elif dragged_node >= 0 and drag_uses_touch:
                     if event.position.distance_to(hold_origin) > HOLD_SLOP:
@@ -219,11 +333,18 @@ func _input(event: InputEvent) -> void:
         if event.button_index == MOUSE_BUTTON_RIGHT:
             mouse_right = event.pressed and not _over_ui(event.position)
             if mouse_right:
+                _cancel_wire()
                 _end_node_drag()
                 context_pressed.emit(screen_to_world(event.position))
         elif event.button_index == MOUSE_BUTTON_LEFT:
             if event.pressed and not mouse_right and touches.is_empty():
-                _begin_node_drag(event.position, false)
+                if _over_ui(event.position):
+                    _debug_ui_press(event.position)
+                elif not _begin_wire(event.position, false):
+                    _begin_node_drag(event.position, false)
+            elif not event.pressed and not wire_uses_touch:
+                _finish_wire(event.position)
+                _end_node_drag()
             elif not event.pressed and not drag_uses_touch:
                 _end_node_drag()
         elif event.pressed and not _over_ui(event.position):
@@ -238,6 +359,9 @@ func _input(event: InputEvent) -> void:
             mouse_position = event.position
             if mouse_right:
                 pan_screen(event.relative)
+            elif wire_from != -1 and not wire_uses_touch:
+                wire_pointer = event.position
+                queue_redraw()
             elif dragged_node >= 0 and node_drag_active and not drag_uses_touch:
                 _move_node(event.position)
             _update_hover()
@@ -252,6 +376,14 @@ func _draw() -> void:
         draw_line(Vector2(x * GRID, visible.position.y), Vector2(x * GRID, visible.end.y), Color(0.8, 0.9, 0.7, 0.14), 1.0 / camera_zoom)
     for y in range(int(ceil(visible.position.y / GRID)), int(floor(visible.end.y / GRID)) + 1):
         draw_line(Vector2(visible.position.x, y * GRID), Vector2(visible.end.x, y * GRID), Color(0.8, 0.9, 0.7, 0.14), 1.0 / camera_zoom)
+    for source in connections:
+        _draw_wire(port_position(source), port_position(connections[source]), Color("e0f2b2"))
+    if wire_from != -1:
+        var endpoint := screen_to_world(wire_pointer)
+        if units[wire_from].friendly:
+            _draw_wire(port_position(wire_from), endpoint, Color("8ee5cf"))
+        else:
+            _draw_wire(endpoint, port_position(wire_from), Color("8ee5cf"))
     for i in range(node_positions.size()):
         var point := node_positions[i]
         if not visible.intersects(Rect2(point - NODE_HALF_SIZE - Vector2(6, 6), NODE_HALF_SIZE * 2 + Vector2(12, 12))):
@@ -261,15 +393,32 @@ func _draw() -> void:
             draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("8ee5cf"), false, 2.0 / camera_zoom)
         if i == dragged_node:
             draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("e0f2b2"), false, 2.0 / camera_zoom)
-        draw_circle(point + Vector2(-65, 0), 6, Color("8ee5cf"))
-        draw_circle(point + Vector2(65, 0), 6, Color("8ee5cf"))
-        draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
+        if units.has(i):
+            var unit = units[i]
+            var color := Color("8ee5cf") if unit.friendly else Color("f29b94")
+            draw_circle(port_position(i), 7.0 * debug_ui_scale() / camera_zoom, color)
+            draw_string(ThemeDB.fallback_font, point + Vector2(-53, -8), "ALLY / OUT" if unit.friendly else "ENEMY / IN", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)
+            draw_string(ThemeDB.fallback_font, point + Vector2(-53, 17), unit.hp_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+            draw_rect(Rect2(point + Vector2(-53, 24), Vector2(106, 3)), Color("152a25"))
+            draw_rect(Rect2(point + Vector2(-53, 24), Vector2(106 * unit.hp / unit.max_hp, 3)), color)
+        else:
+            draw_circle(point + Vector2(-65, 0), 6, Color("8ee5cf"))
+            draw_circle(point + Vector2(65, 0), 6, Color("8ee5cf"))
+            draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
     draw_style_box(hud_style, Rect2(14, 14, minf(size.x - 28, 570), 116))
     draw_string(ThemeDB.fallback_font, Vector2(28, 40), "NodeNexus / NODE PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("d5efba"))
     draw_string(ThemeDB.fallback_font, Vector2(28, 65), "RMB drag: pan  /  Wheel: zoom", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     draw_string(ThemeDB.fallback_font, Vector2(28, 89), "Touch: 2-finger pan / pinch / hold + drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     draw_string(ThemeDB.fallback_font, Vector2(28, 113), "Node body: left drag / 1-finger drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+    var menu := debug_menu_rect()
+    var ui_scale := debug_ui_scale()
+    draw_style_box(hud_style, menu)
+    draw_string(ThemeDB.fallback_font, menu.position + Vector2(12, 23) * ui_scale, "DEBUG / UNITS", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(16 * ui_scale))
+    for friendly in [true, false]:
+        var button := debug_button_rect(friendly)
+        draw_style_box(node_style, button)
+        draw_string(ThemeDB.fallback_font, button.position + Vector2(10, 28) * ui_scale, "+ ALLY  HP 10" if friendly else "+ ENEMY  HP 8", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(16 * ui_scale), Color("8ee5cf") if friendly else Color("f29b94"))
     var mini := minimap_rect()
     draw_style_box(minimap_style, mini.grow(5))
     draw_rect(mini, Color("3c5930"))

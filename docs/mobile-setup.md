@@ -99,3 +99,7 @@ WebAssembly は Pages の 25 MiB/ファイル制限に合わせ gzip 圧縮し�
 - [PR プレビューと Access](https://developers.cloudflare.com/pages/configuration/preview-deployments/)
 - [本体の pages.dev も保護する](https://developers.cloudflare.com/pages/platform/known-issues/#enable-access-on-your-pagesdev-domain)
 - [Pages のファイルサイズ制限](https://developers.cloudflare.com/pages/platform/limits/)
+
+## デバッグ戦闘
+
+右上の `+ ALLY HP 10` と `+ ENEMY HP 8` でユニットを生成できます。味方の右ポートから敵の左ポートへドラッグすると接続し、両方のHPが毎秒1ずつ減ります。逆側からドラッグしても同じ向きに接続します。HPは小数点第一位まで表示し、0になると各最大値へ戻って継続します。空白へ離すと接続をキャンセルします。一本指でポートをドラッグすると線、本体をドラッグするとユニットが動きます。

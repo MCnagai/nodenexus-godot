@@ -22,6 +22,7 @@ run_godot() {
 }
 run_godot --headless --import
 run_godot --headless --script res://tests/test_smoke.gd
+run_godot --headless --script res://tests/test_combat.gd
 run_godot --headless --export-release Web "$root/build/web/index.html"
 for artifact in index.html index.js index.wasm index.pck; do
   test -s "$root/build/web/$artifact"

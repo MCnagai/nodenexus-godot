@@ -192,7 +192,15 @@ async function run() {
         const xs = [];
         for (let x = 0; x < spawned.width; x++) if (near(spawned.data, (row * spawned.width + x) * 4, rgb)) xs.push(x);
         assert.ok(xs.length, `${name}: generated port is not visible`);
-        return (xs[0] + xs[xs.length - 1]) / 2;
+        // Hover outlines share the ally port color. Pick the widest contiguous
+        // run (the port circle), not the midpoint of unrelated colored pixels.
+        const runs = [];
+        for (const x of xs) {
+          if (!runs.length || x > runs[runs.length - 1][1] + 1) runs.push([x, x]);
+          else runs[runs.length - 1][1] = x;
+        }
+        const run = runs.reduce((best, next) => next[1] - next[0] > best[1] - best[0] ? next : best);
+        return (run[0] + run[1]) / 2;
       };
       outX = portCenter([142, 229, 207]);
       inX = portCenter([242, 155, 148]);

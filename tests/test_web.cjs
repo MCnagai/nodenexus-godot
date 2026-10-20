@@ -45,6 +45,7 @@ async function run() {
       ['mobile', { viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 }],
       ['mobile-landscape', { viewport: { width: 915, height: 412 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 }],
     ]) {
+      if (process.env.WEB_TEST_PROFILE && process.env.WEB_TEST_PROFILE !== name) continue;
       const page = await browser.newPage(options);
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
@@ -224,6 +225,32 @@ async function run() {
       await page.waitForTimeout(200);
       assert.ok(!hasWireAt(image(await page.screenshot({ scale: 'css' })), wireX, portY), `${name}: input tap did not disconnect`);
       await fs.writeFile(path.join(evidence, `${name}-disconnected.png`), await page.screenshot({ scale: 'css' }));
+      // Real defeat -> visible money -> pointer pickup -> occupied inventory cell.
+      await connectDebugPorts();
+      await page.waitForTimeout(7000);
+      const dropped = image(await page.screenshot({ scale: 'css' }));
+      const gold = [];
+      for (let y = 170; y < dropped.height - 60; y++) {
+        for (let x = 0; x < dropped.width; x++) {
+          if (near(dropped.data, (y * dropped.width + x) * 4, [244, 204, 82])) gold.push({ x, y });
+        }
+      }
+      assert.ok(gold.length > 20, `${name}: enemy defeat did not render money`);
+      const coinX = gold.reduce((sum, p) => sum + p.x, 0) / gold.length;
+      const coinY = gold.reduce((sum, p) => sum + p.y, 0) / gold.length;
+      await activate(coinX, coinY);
+      await activate(80 * uiScale * worldScale, options.viewport.height - 36 * uiScale * worldScale);
+      await page.waitForTimeout(150);
+      const inventory = image(await page.screenshot({ scale: 'css' }));
+      const cellX = 43 * uiScale * worldScale;
+      const cellY = options.viewport.height - 254 * uiScale * worldScale;
+      let inventoryGold = 0;
+      for (let dy = -12; dy <= 12; dy++) for (let dx = -12; dx <= 12; dx++) {
+        const x = Math.round(cellX + dx), y = Math.round(cellY + dy);
+        if (near(inventory.data, (y * inventory.width + x) * 4, [244, 204, 82])) inventoryGold++;
+      }
+      await fs.writeFile(path.join(evidence, `${name}-inventory.png`), await page.screenshot({ scale: 'css' }));
+      assert.ok(inventoryGold > 10, `${name}: pickup did not put money icon into first cell`);
       assert.deepEqual(errors, [], `${name}: browser errors`);
       console.log(`WEB_BROWSER_PASSED: ${name}, debug spawn/wiring/HP/disconnect, node drag, map pan and zoom, repeat load uses cached engine`);
       await page.close();

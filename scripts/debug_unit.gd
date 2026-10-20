@@ -9,10 +9,12 @@ func _init(is_friendly: bool) -> void:
     max_hp = 10.0 if friendly else 8.0
     hp = max_hp
 
-func tick(delta: float) -> void:
+func tick(delta: float) -> bool:
     hp -= delta
     if hp <= 0.0:
         hp = max_hp
+        return true
+    return false
 
 func hp_text() -> String:
     return "HP %.1f / %.1f" % [hp, max_hp]

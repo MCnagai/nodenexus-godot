@@ -25,6 +25,13 @@ var wire_pointer := Vector2.ZERO
 var wire_press_position := Vector2.ZERO
 var wire_dragged := false
 var wire_uses_touch := false
+var drops: Dictionary = {}
+var next_drop_id := 0
+var money_count := 0
+var inventory_open := false
+var pickup_id := -1
+var pickup_origin := Vector2.ZERO
+var pickup_uses_touch := false
 var grass: ImageTexture
 var node_style: StyleBoxFlat
 var hud_style: StyleBoxFlat
@@ -109,7 +116,12 @@ func debug_button_rect(friendly: bool) -> Rect2:
     return Rect2(menu.position + Vector2(12, 36 if friendly else 94) * scale, Vector2(176, 44) * scale)
 
 func _debug_ui_press(point: Vector2) -> void:
-    if debug_button_rect(true).has_point(point):
+    if inventory_button_rect().has_point(point):
+        inventory_open = not inventory_open
+        queue_redraw()
+    elif inventory_open and inventory_rect().has_point(point):
+        return
+    elif debug_button_rect(true).has_point(point):
         spawn_unit(true)
     elif debug_button_rect(false).has_point(point):
         spawn_unit(false)
@@ -202,9 +214,89 @@ func _tick_combat(delta: float) -> void:
         active[source] = true
         active[connections[source]] = true
     for index in active:
-        units[index].tick(delta)
+        var defeated: bool = units[index].tick(delta)
+        if defeated and not units[index].friendly:
+            _drop_money(node_positions[index])
     if not active.is_empty():
         queue_redraw()
+
+func inventory_button_rect() -> Rect2:
+    var scale := debug_ui_scale()
+    return Rect2(Vector2(14 * scale, size.y - 58 * scale), Vector2(156, 44) * scale)
+
+func inventory_rect() -> Rect2:
+    var scale := debug_ui_scale()
+    return Rect2(Vector2(14 * scale, size.y - 310 * scale), Vector2(216, 244) * scale)
+
+func inventory_cell_rect(index: int) -> Rect2:
+    var scale := debug_ui_scale()
+    return Rect2(inventory_rect().position + Vector2(12 + (index % 4) * 48, 40 + (index / 4) * 48) * scale, Vector2(44, 44) * scale)
+
+func _drop_money(point: Vector2) -> void:
+    var position := (point + Vector2(0, -80)).clamp(Vector2(24, 24), MAP_SIZE - Vector2(24, 24))
+    # Repeated kills at the same place form one collectible stack.
+    for drop in drops.values():
+        if drop.position.distance_to(position) < 1.0:
+            drop.amount += 1
+            return
+    drops[next_drop_id] = {"position": position, "amount": 1}
+    next_drop_id += 1
+
+func _pick_drop(point: Vector2) -> int:
+    if _over_ui(point):
+        return -1
+    for id in drops.keys():
+        var center: Vector2 = size / 2 + (drops[id].position - camera_position) * camera_zoom
+        if point.distance_to(center) <= 24 * debug_ui_scale():
+            return id
+    return -1
+
+func _begin_pickup(point: Vector2, from_touch: bool) -> bool:
+    pickup_id = _pick_drop(point)
+    if pickup_id == -1:
+        return false
+    pickup_origin = point
+    pickup_uses_touch = from_touch
+    return true
+
+func _update_pickup(point: Vector2) -> void:
+    if point.distance_to(pickup_origin) * get_viewport().get_stretch_transform().get_scale().x > 8.0:
+        pickup_id = -1
+
+func _finish_pickup(point: Vector2) -> void:
+    _update_pickup(point)
+    if pickup_id != -1 and _pick_drop(point) == pickup_id:
+        money_count += int(drops[pickup_id].amount)
+        drops.erase(pickup_id)
+        queue_redraw()
+    pickup_id = -1
+
+func _draw_coin(center: Vector2, radius: float) -> void:
+    draw_circle(center, radius, Color("f4cc52"))
+    draw_circle(center, radius * 0.72, Color("b87e26"), false, maxf(1, radius * 0.1), true)
+    draw_line(center - Vector2(0, radius * 0.45), center + Vector2(0, radius * 0.45), Color("fff0a1"), maxf(2, radius * 0.15), true)
+
+func _draw_inventory() -> void:
+    var scale := debug_ui_scale()
+    var button := inventory_button_rect()
+    draw_style_box(hud_style, button)
+    draw_string(ThemeDB.fallback_font, button.position + Vector2(12, 28) * scale, "ITEMS / CLOSE" if inventory_open else "ITEMS / OPEN", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(16 * scale))
+    if not inventory_open:
+        return
+    var panel := inventory_rect()
+    draw_style_box(hud_style, panel)
+    draw_string(ThemeDB.fallback_font, panel.position + Vector2(12, 25) * scale, "ITEMS  /  4 x 4", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(16 * scale), Color("d5efba"))
+    for index in range(16):
+        var cell := inventory_cell_rect(index)
+        draw_style_box(node_style, cell)
+        draw_rect(cell, Color("56766a"), false, scale)
+        if index == 0 and money_count > 0:
+            _draw_coin(cell.position + Vector2(17, 16) * scale, 11 * scale)
+            var count := str(money_count)
+            var font_size := roundi(14 * scale)
+            while font_size > roundi(8 * scale) and ThemeDB.fallback_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > cell.size.x - 4 * scale:
+                font_size -= 1
+            draw_string(ThemeDB.fallback_font, cell.position + Vector2(2 * scale, cell.size.y - 4 * scale), count, HORIZONTAL_ALIGNMENT_RIGHT, cell.size.x - 6 * scale, font_size)
 
 func _draw_wire(source: Vector2, target: Vector2, color: Color) -> void:
     var bend := maxf(50.0, absf(target.x - source.x) * 0.5)
@@ -214,7 +306,7 @@ func _draw_wire(source: Vector2, target: Vector2, color: Color) -> void:
     draw_polyline(curve.get_baked_points(), color, 2.5 * debug_ui_scale() / camera_zoom, true)
 
 func _over_ui(point: Vector2) -> bool:
-    return debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or hud_rect().has_point(point)
+    return inventory_button_rect().has_point(point) or (inventory_open and inventory_rect().has_point(point)) or debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or hud_rect().has_point(point)
 
 func _pick_node(screen_point: Vector2) -> int:
     var point := screen_to_world(screen_point)
@@ -292,6 +384,7 @@ func _process(delta: float) -> void:
         if hold_elapsed >= HOLD_SECONDS:
             hold_pending = false
             touch_right = true
+            pickup_id = -1
             _end_node_drag()
             context_pressed.emit(screen_to_world(hold_origin))
             queue_redraw()
@@ -299,6 +392,7 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
     if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
         _clear_hover()
+        pickup_id = -1
         _cancel_wire()
         touches.clear()
         hold_pending = false
@@ -321,12 +415,17 @@ func _input(event: InputEvent) -> void:
             if touches.size() == 1:
                 if gesture_blocked:
                     _debug_ui_press(event.position)
-                elif not _begin_wire(event.position, true):
+                elif not _begin_pickup(event.position, true) and not _begin_wire(event.position, true):
                     _begin_node_drag(event.position, true)
             else:
+                pickup_id = -1
                 _cancel_wire()
                 _end_node_drag()
         else:
+            if pickup_uses_touch and touches.size() == 1 and not event.canceled:
+                _finish_pickup(event.position)
+            else:
+                pickup_id = -1
             if not event.canceled and wire_uses_touch:
                 _finish_wire(event.position)
             else:
@@ -355,6 +454,7 @@ func _input(event: InputEvent) -> void:
         else:
             touches[event.index] = event.position
             if touches.size() == 1 and not gesture_blocked:
+                _update_pickup(event.position)
                 if wire_from != -1 and wire_uses_touch:
                     _update_wire_pointer(event.position)
                 elif touch_right:
@@ -376,6 +476,7 @@ func _input(event: InputEvent) -> void:
         if event.button_index == MOUSE_BUTTON_RIGHT:
             mouse_right = event.pressed and not _over_ui(event.position)
             if mouse_right:
+                pickup_id = -1
                 _cancel_wire()
                 _end_node_drag()
                 context_pressed.emit(screen_to_world(event.position))
@@ -383,8 +484,10 @@ func _input(event: InputEvent) -> void:
             if event.pressed and not mouse_right and touches.is_empty():
                 if _over_ui(event.position):
                     _debug_ui_press(event.position)
-                elif not _begin_wire(event.position, false):
+                elif not _begin_pickup(event.position, false) and not _begin_wire(event.position, false):
                     _begin_node_drag(event.position, false)
+            elif not event.pressed and not pickup_uses_touch and pickup_id != -1:
+                _finish_pickup(event.position)
             elif not event.pressed and not wire_uses_touch:
                 _finish_wire(event.position)
                 _end_node_drag()
@@ -400,6 +503,7 @@ func _input(event: InputEvent) -> void:
         if event.device != InputEvent.DEVICE_ID_EMULATION:
             mouse_present = true
             mouse_position = event.position
+            _update_pickup(event.position)
             if mouse_right:
                 pan_screen(event.relative)
             elif wire_from != -1 and not wire_uses_touch:
@@ -448,6 +552,12 @@ func _draw() -> void:
             draw_circle(point + Vector2(NODE_HALF_SIZE.x, 0), 6, Color("8ee5cf"))
             draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
+    for drop in drops.values():
+        var center: Vector2 = size / 2 + (drop.position - camera_position) * camera_zoom
+        if Rect2(Vector2.ZERO, size).grow(24 * debug_ui_scale()).has_point(center):
+            _draw_coin(center, 16 * debug_ui_scale())
+            if drop.amount > 1:
+                draw_string(ThemeDB.fallback_font, center + Vector2(10, 22) * debug_ui_scale(), str(drop.amount), HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * debug_ui_scale()))
     var hud := hud_rect()
     draw_style_box(hud_style, hud)
     if get_window().size.x < 700 or get_window().size.y < 500:
@@ -481,6 +591,7 @@ func _draw() -> void:
     draw_rect(frame, Color(0.9, 1.0, 0.8, 0.12))
     draw_rect(frame, Color("e0f2b2"), false, 2)
     draw_string(ThemeDB.fallback_font, mini.position - Vector2(0, 12), "MAP  /  %d%%" % roundi(camera_zoom * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * debug_ui_scale()))
+    _draw_inventory()
     if touch_right:
         draw_circle(hold_origin, 18, Color("e0f2b2"), false, 2)
 

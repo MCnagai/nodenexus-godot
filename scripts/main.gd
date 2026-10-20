@@ -124,7 +124,11 @@ func spawn_unit(friendly: bool) -> int:
     var horizontal := minf(170.0, maxf(0.0, size.x / 2 - NODE_HALF_SIZE.x - 24) * 0.8)
     var vertical := minf(140.0 + (count % 4) * 100, maxf(0.0, size.y / 2 - NODE_HALF_SIZE.y - 24))
     var offset := Vector2(side * horizontal, vertical) / camera_zoom
-    var point := (camera_position + offset).clamp(NODE_HALF_SIZE, MAP_SIZE - NODE_HALF_SIZE)
+    var screen_center := size / 2 + offset * camera_zoom
+    var body := Rect2(screen_center - NODE_HALF_SIZE * camera_zoom, NODE_HALF_SIZE * 2 * camera_zoom)
+    if not friendly and body.intersects(minimap_rect().grow(12)):
+        screen_center.x = minf(screen_center.x, minimap_rect().position.x - NODE_HALF_SIZE.x * camera_zoom - 16)
+    var point := screen_to_world(screen_center).clamp(NODE_HALF_SIZE, MAP_SIZE - NODE_HALF_SIZE)
     node_positions.append(point)
     units[index] = DebugUnit.new(friendly)
     queue_redraw()

@@ -161,8 +161,20 @@ async function run() {
       const vertical = Math.min(140, Math.max(0, options.viewport.height / worldScale / 2 - 38 - 24));
       const portY = options.viewport.height / 2 + vertical * worldScale;
       const horizontal = Math.min(170, Math.max(0, options.viewport.width / worldScale / 2 - 80 - 24) * 0.8);
-      const outX = options.viewport.width / 2 - (horizontal - 80) * worldScale;
-      const inX = options.viewport.width / 2 + (horizontal - 80) * worldScale;
+      let outX = options.viewport.width / 2 - (horizontal - 80) * worldScale;
+      let inX = options.viewport.width / 2 + (horizontal - 80) * worldScale;
+      // Locate the actual colored ports: responsive spawning avoids minimap overlap.
+      const spawned = image(await page.screenshot({ scale: 'css' }));
+      const portCenter = rgb => {
+        const row = Math.round(portY);
+        const xs = [];
+        for (let x = 0; x < spawned.width; x++) if (near(spawned.data, (row * spawned.width + x) * 4, rgb)) xs.push(x);
+        assert.ok(xs.length, `${name}: generated port is not visible`);
+        return (xs[0] + xs[xs.length - 1]) / 2;
+      };
+      outX = portCenter([142, 229, 207]);
+      inX = portCenter([242, 155, 148]);
+      const wireX = (outX + inX) / 2;
       const connectDebugPorts = async () => {
       if (options.hasTouch) {
         const session = await page.context().newCDPSession(page);
@@ -181,7 +193,7 @@ async function run() {
       await page.waitForTimeout(300);
       const connected = image(await page.screenshot({ scale: 'css' }));
       await fs.writeFile(path.join(evidence, `${name}-wire.png`), await page.screenshot({ scale: 'css' }));
-      assert.ok(hasWireAt(connected, options.viewport.width / 2, portY), `${name}: debug ports did not create a visible connection`);
+      assert.ok(hasWireAt(connected, wireX, portY), `${name}: debug ports did not create a visible connection`);
       const hpArea = { x: Math.floor(options.viewport.width / 2 - (horizontal + 68) * worldScale), y: Math.floor(portY - 30 * worldScale), width: Math.ceil(136 * worldScale), height: Math.ceil(64 * worldScale) };
       const hpBefore = await page.screenshot({ clip: hpArea, scale: 'css' });
       await page.waitForTimeout(1300);
@@ -191,7 +203,7 @@ async function run() {
       await activate(outX, portY);
       await page.waitForTimeout(200);
       const disconnected = image(await page.screenshot({ scale: 'css' }));
-      assert.ok(!hasWireAt(disconnected, options.viewport.width / 2, portY), `${name}: output tap did not disconnect`);
+      assert.ok(!hasWireAt(disconnected, wireX, portY), `${name}: output tap did not disconnect`);
       const stopped = await page.screenshot({ clip: hpArea, scale: 'css' });
       await page.waitForTimeout(1100);
       assert.ok(changedPixels(stopped, await page.screenshot({ clip: hpArea, scale: 'css' })) < 5, `${name}: disconnected HP kept decreasing`);
@@ -199,7 +211,7 @@ async function run() {
       await page.waitForTimeout(200);
       await activate(inX, portY);
       await page.waitForTimeout(200);
-      assert.ok(!hasWireAt(image(await page.screenshot({ scale: 'css' })), options.viewport.width / 2, portY), `${name}: input tap did not disconnect`);
+      assert.ok(!hasWireAt(image(await page.screenshot({ scale: 'css' })), wireX, portY), `${name}: input tap did not disconnect`);
       await fs.writeFile(path.join(evidence, `${name}-disconnected.png`), await page.screenshot({ scale: 'css' }));
       assert.deepEqual(errors, [], `${name}: browser errors`);
       console.log(`WEB_BROWSER_PASSED: ${name}, debug spawn/wiring/HP/disconnect, node drag, map pan and zoom, repeat load uses cached engine`);

@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     env:
       BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,7 +54,7 @@ jobs:
       - name: Cache browser shell
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/playwright
+          path: ${{ github.workspace }}/.playwright
           key: playwright-shell-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
       - name: Install browser test dependencies
         run: |
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,7 +99,7 @@ jobs:
           cache: npm
       - uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/playwright
+          path: ${{ github.workspace }}/.playwright
           key: playwright-shell-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
       - name: Install browser test dependencies
         run: |

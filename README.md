@@ -34,7 +34,7 @@ python3 tools/serve-web.py --port 8000
 
 ## Camera prototype
 
-Repeating procedural grass, a 100-unit grid, temporary node markers, and a minimap showing nodes and the current viewport. Right-button drag pans; the wheel zooms around the pointer (30–250%). On touch screens, use two-finger pan and pinch zoom, or hold still for 0.5 seconds then drag. Moving before the hold completes cancels it. Minimap is display-only and follows node movement. Drag a node body with the left mouse button or one finger to reposition it; the grab offset is preserved at every zoom. Ports are reserved for future connections. Two fingers or a stationary long press cancel node dragging and switch to camera controls. Nodes stay within the map; releasing or losing focus ends the drag.
+Repeating procedural grass, a 100-unit grid, an initially empty board, and a minimap showing nodes and the current viewport. Right-button drag pans; the wheel zooms around the pointer (30–250%). On touch screens, use two-finger pan and pinch zoom, or hold still for 0.5 seconds then drag. Moving before the hold completes cancels it. Minimap is display-only and follows node movement. Drag a node body with the left mouse button or one finger to reposition it; the grab offset is preserved at every zoom. Ports are reserved for future connections. Two fingers or a stationary long press cancel node dragging and switch to camera controls. Nodes stay within the map; releasing or losing focus ends the drag.
 
 The runtime and protected deployment setup from prerequisite PR #1 are included in this branch; new features must preserve that setup even before it reaches the default branch.
 
@@ -47,3 +47,5 @@ Use the top-right debug menu to create allies (10.0 HP, one output on the right)
 Tap or click a connected port without dragging to disconnect it. An output clears its own link; an input clears links arriving at that port. A drag that returns to its starting port, a canceled touch, or camera gesture leaves connections intact. HP pauses as soon as a unit has no remaining connections.
 
 The responsive canvas uses a 480×720 reference (480×320 for short landscape windows) with expanding aspect, rather than squeezing a desktop-width board onto a phone. Larger node bodies and 16-unit HP text keep default mobile labels readable; the compact help panel, debug menu and minimap labels scale for the screen. High-DPI backing-store multiplication remains disabled.
+
+The map starts empty. Create units with the debug menu; movement/browser tests create their own units instead of relying on startup markers.

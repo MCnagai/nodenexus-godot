@@ -29,6 +29,9 @@ func _run() -> void:
     root.add_child(scene)
     await process_frame
     check(scene.grass != null, "Grass texture missing")
+    check(scene.node_positions.is_empty() and scene.units.is_empty() and scene.connections.is_empty(), "Board should start empty")
+    var fixture: int = scene.spawn_unit(true)
+    scene.node_positions[fixture] = scene.camera_position
     var start: Vector2 = scene.camera_position
     var button := InputEventMouseButton.new()
     button.button_index = MOUSE_BUTTON_RIGHT

@@ -15,8 +15,8 @@ const PORT_HIT_RADIUS := 12.0
 
 var camera_position := MAP_SIZE / 2.0
 var camera_zoom := 1.0
-# Temporary markers; replace with the live node collection when units are implemented.
-var node_positions: Array[Vector2] = [Vector2(3000, 3000), Vector2(3300, 2800), Vector2(2600, 3200), Vector2(1500, 1800), Vector2(4700, 4400)]
+# The board starts empty; debug units are created through the menu.
+var node_positions: Array[Vector2] = []
 var units: Dictionary = {}
 # One connection per debug output; replacing a connection changes its target.
 var connections: Dictionary = {}

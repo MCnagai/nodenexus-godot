@@ -65,14 +65,24 @@ async function run() {
       await fs.writeFile(path.join(evidence, `${name}-map.png`), initial);
       assert.ok(grassPixels > rendered.width * rendered.height * 0.3, `${name}: grass map did not render`);
       await fs.writeFile(path.join(evidence, `${name}-map.png`), initial);
-      // Move the center node before exercising the independent camera gestures.
-      const source = { x: options.viewport.width / 2, y: options.viewport.height / 2 };
-      const target = { x: source.x + (options.hasTouch ? 70 : 140), y: source.y + 50 };
+      // The board starts empty; create a real debug unit for movement checks.
+      const fixtureReferenceHeight = options.viewport.height < 500 && options.viewport.width > options.viewport.height ? 320 : 720;
+      const fixtureScale = Math.min(options.viewport.width / 480, options.viewport.height / fixtureReferenceHeight);
+      const fixtureUiScale = Math.max(1, Math.min(3, 1 / fixtureScale));
+      const fixtureX = options.viewport.width - 114 * fixtureUiScale * fixtureScale;
+      const fixtureY = 72 * fixtureUiScale * fixtureScale;
+      if (options.hasTouch) await page.touchscreen.tap(fixtureX, fixtureY);
+      else await page.mouse.click(fixtureX, fixtureY);
+      await page.waitForTimeout(300);
+      const fixtureHorizontal = Math.min(170, Math.max(0, options.viewport.width / fixtureScale / 2 - 80 - 24) * 0.8);
+      const fixtureVertical = Math.min(140, Math.max(0, options.viewport.height / fixtureScale / 2 - 38 - 24));
+      const source = { x: options.viewport.width / 2 - fixtureHorizontal * fixtureScale, y: options.viewport.height / 2 + fixtureVertical * fixtureScale };
+      const target = { x: options.viewport.width / 2, y: options.viewport.height / 2 };
       if (options.hasTouch) {
         const session = await page.context().newCDPSession(page);
         await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...source, id: 0 }] });
         for (let i = 1; i <= 8; i++) {
-          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: source.x + (target.x - source.x) * i / 8, y: source.y + 50 * i / 8, id: 0 }] });
+          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: source.x + (target.x - source.x) * i / 8, y: source.y + (target.y - source.y) * i / 8, id: 0 }] });
         }
         await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         await session.detach();
@@ -84,7 +94,8 @@ async function run() {
       }
       await page.waitForTimeout(300);
       const movedNode = image(await page.screenshot({ scale: 'css' }));
-      const offset = (Math.round(target.y + 8) * movedNode.width + Math.round(target.x + 10)) * 4;
+      const offset = (Math.round(target.y - 25 * fixtureScale) * movedNode.width + Math.round(target.x + 64 * fixtureScale)) * 4;
+      await fs.writeFile(path.join(evidence, `${name}-moved-node.png`), await page.screenshot({ scale: 'css' }));
       assert.ok(near(movedNode.data, offset, [35, 59, 55]), `${name}: node body did not arrive at drag destination`);
       const released = await page.screenshot({ scale: 'css' });
       if (!options.hasTouch) {

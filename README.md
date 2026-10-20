@@ -43,3 +43,7 @@ The Web prototype renders at CSS-pixel resolution instead of multiplying the ren
 ## Debug combat
 
 Use the top-right debug menu to create allies (10.0 HP, one output on the right) and enemies (8.0 HP, one input on the left). Drag between opposite ports with the left mouse button or one finger; release on empty space to cancel. Connected units each lose 1.0 HP per second, continuously, with one-decimal labels and smooth bars. At zero HP each unit returns to its own maximum and combat continues. A repeated connection does not stack damage; one output can target one enemy, and connecting it elsewhere replaces that target. Connections follow moved units. This is a debug-only loop, without equipment or damage rules. Reloading resets the scene.
+
+Tap or click a connected port without dragging to disconnect it. An output clears its own link; an input clears links arriving at that port. A drag that returns to its starting port, a canceled touch, or camera gesture leaves connections intact. HP pauses as soon as a unit has no remaining connections.
+
+The responsive canvas uses a 480×720 reference (480×320 for short landscape windows) with expanding aspect, rather than squeezing a desktop-width board onto a phone. Larger node bodies and 16-unit HP text keep default mobile labels readable; the compact help panel, debug menu and minimap labels scale for the screen. High-DPI backing-store multiplication remains disabled.

@@ -29,6 +29,7 @@ func touch(scene: Control, point: Vector2, pressed: bool, index: int = 0, cancel
     scene._input(event)
 
 func _run() -> void:
+    root.size = Vector2i(1280, 720)
     var scene = load("res://scenes/main.tscn").instantiate()
     root.add_child(scene)
     await process_frame
@@ -79,6 +80,32 @@ func _run() -> void:
     click(scene, input, false)
     scene._tick_combat(1.0)
     check(scene.units[ally].hp == 8.0 and scene.units[enemy].hp == 6.0 and scene.units[idle].hp == 9.0, "Shared target multiplied HP decay")
+    # Tapping an output disconnects only that output; an input clears all its links.
+    click(scene, output, true)
+    click(scene, output, false)
+    check(not scene.connections.has(ally) and scene.connections.has(idle), "Output tap removed the wrong links")
+    var ally_hp: float = scene.units[ally].hp
+    scene._tick_combat(0.5)
+    check(scene.units[ally].hp == ally_hp and scene.units[enemy].hp == 5.5, "Disconnected unit kept losing HP")
+    touch(scene, input, true)
+    touch(scene, input + Vector2(2, 0), false)
+    check(scene.connections.is_empty(), "Input tap with jitter did not clear incoming links")
+    var enemy_hp: float = scene.units[enemy].hp
+    scene._tick_combat(1.0)
+    check(scene.units[enemy].hp == enemy_hp, "HP did not stop after disconnect")
+    click(scene, output, true)
+    click(scene, input, false)
+    click(scene, output, true)
+    var motion := InputEventMouseMotion.new()
+    motion.position = output + Vector2(40, 0)
+    scene._input(motion)
+    motion.position = output
+    scene._input(motion)
+    click(scene, output, false)
+    check(scene.connections.has(ally), "Drag returning to its original port was treated as a tap")
+    touch(scene, output, true)
+    touch(scene, output, false, 0, true)
+    check(scene.connections.has(ally), "Canceled tap disconnected a link")
     scene.connections.clear()
     touch(scene, output, true)
     touch(scene, input, false, 0, true)

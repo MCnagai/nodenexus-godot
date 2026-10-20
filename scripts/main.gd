@@ -10,7 +10,7 @@ const MIN_ZOOM := 0.3
 const MAX_ZOOM := 2.5
 const HOLD_SECONDS := 0.5
 const HOLD_SLOP := 12.0
-const NODE_HALF_SIZE := Vector2(65, 32)
+const NODE_HALF_SIZE := Vector2(80, 38)
 const PORT_HIT_RADIUS := 12.0
 
 var camera_position := MAP_SIZE / 2.0
@@ -22,6 +22,8 @@ var units: Dictionary = {}
 var connections: Dictionary = {}
 var wire_from := -1
 var wire_pointer := Vector2.ZERO
+var wire_press_position := Vector2.ZERO
+var wire_dragged := false
 var wire_uses_touch := false
 var grass: ImageTexture
 var node_style: StyleBoxFlat
@@ -43,6 +45,8 @@ var node_drag_active := false
 var drag_uses_touch := false
 
 func _ready() -> void:
+    _configure_canvas()
+    get_window().size_changed.connect(_configure_canvas)
     mouse_filter = Control.MOUSE_FILTER_IGNORE
     texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
     grass = _make_grass()
@@ -52,6 +56,12 @@ func _ready() -> void:
     resized.connect(_refresh)
     get_window().mouse_exited.connect(_clear_hover)
     _refresh()
+
+func _configure_canvas() -> void:
+    var window := get_window()
+    var reference := Vector2i(480, 320) if window.size.y < 500 and window.size.x > window.size.y else Vector2i(480, 720)
+    if window.content_scale_size != reference:
+        window.content_scale_size = reference
 
 func _make_grass() -> ImageTexture:
     var image := Image.create(128, 128, false, Image.FORMAT_RGB8)
@@ -83,6 +93,12 @@ func minimap_rect() -> Rect2:
 func debug_ui_scale() -> float:
     return clampf(size.x / maxf(1.0, get_window().size.x), 1.0, 3.0)
 
+func hud_rect() -> Rect2:
+    var scale := debug_ui_scale()
+    if get_window().size.x < 700 or get_window().size.y < 500:
+        return Rect2(Vector2(14, 14) * scale, Vector2(minf(198 * scale, maxf(80, debug_menu_rect().position.x - 28 * scale)), 136 * scale))
+    return Rect2(14, 14, minf(size.x - 28, 570), 140)
+
 func debug_menu_rect() -> Rect2:
     var scale := debug_ui_scale()
     return Rect2(Vector2(size.x - 214 * scale, 14 * scale), Vector2(200, 152) * scale)
@@ -105,7 +121,9 @@ func spawn_unit(friendly: bool) -> int:
     for unit in units.values():
         if unit.friendly == friendly:
             count += 1
-    var offset := Vector2(side * 170, 140 + (count % 4) * 100) / camera_zoom
+    var horizontal := minf(170.0, maxf(0.0, size.x / 2 - NODE_HALF_SIZE.x - 24) * 0.8)
+    var vertical := minf(140.0 + (count % 4) * 100, maxf(0.0, size.y / 2 - NODE_HALF_SIZE.y - 24))
+    var offset := Vector2(side * horizontal, vertical) / camera_zoom
     var point := (camera_position + offset).clamp(NODE_HALF_SIZE, MAP_SIZE - NODE_HALF_SIZE)
     node_positions.append(point)
     units[index] = DebugUnit.new(friendly)
@@ -131,11 +149,30 @@ func _begin_wire(point: Vector2, from_touch: bool) -> bool:
         return false
     wire_from = index
     wire_pointer = point
+    wire_press_position = point
+    wire_dragged = false
     wire_uses_touch = from_touch
     hold_pending = false
     _end_node_drag()
     queue_redraw()
     return true
+
+func _update_wire_pointer(point: Vector2) -> void:
+    wire_pointer = point
+    # Logical canvas units -> CSS pixels; small touch jitter is still a tap.
+    var css_scale := get_viewport().get_stretch_transform().get_scale().x
+    if point.distance_to(wire_press_position) * css_scale > 8.0:
+        wire_dragged = true
+    queue_redraw()
+
+func _disconnect_port(index: int) -> void:
+    if units[index].friendly:
+        connections.erase(index)
+    else:
+        for source in connections.keys():
+            if connections[source] == index:
+                connections.erase(source)
+    queue_redraw()
 
 func _cancel_wire() -> void:
     if wire_from != -1:
@@ -146,7 +183,10 @@ func _finish_wire(point: Vector2) -> void:
     if wire_from == -1:
         return
     var target := _pick_port(point)
-    if target != -1 and units[wire_from].friendly != units[target].friendly:
+    _update_wire_pointer(point)
+    if target == wire_from and not wire_dragged:
+        _disconnect_port(wire_from)
+    elif target != -1 and units[wire_from].friendly != units[target].friendly:
         var source: int = wire_from if units[wire_from].friendly else target
         var destination: int = target if units[wire_from].friendly else wire_from
         connections[source] = destination
@@ -170,7 +210,7 @@ func _draw_wire(source: Vector2, target: Vector2, color: Color) -> void:
     draw_polyline(curve.get_baked_points(), color, 2.5 * debug_ui_scale() / camera_zoom, true)
 
 func _over_ui(point: Vector2) -> bool:
-    return debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or Rect2(14, 14, minf(size.x - 28, 570), 116).has_point(point)
+    return debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or hud_rect().has_point(point)
 
 func _pick_node(screen_point: Vector2) -> int:
     var point := screen_to_world(screen_point)
@@ -312,8 +352,7 @@ func _input(event: InputEvent) -> void:
             touches[event.index] = event.position
             if touches.size() == 1 and not gesture_blocked:
                 if wire_from != -1 and wire_uses_touch:
-                    wire_pointer = event.position
-                    queue_redraw()
+                    _update_wire_pointer(event.position)
                 elif touch_right:
                     pan_screen(event.position - previous)
                 elif dragged_node >= 0 and drag_uses_touch:
@@ -360,8 +399,7 @@ func _input(event: InputEvent) -> void:
             if mouse_right:
                 pan_screen(event.relative)
             elif wire_from != -1 and not wire_uses_touch:
-                wire_pointer = event.position
-                queue_redraw()
+                _update_wire_pointer(event.position)
             elif dragged_node >= 0 and node_drag_active and not drag_uses_touch:
                 _move_node(event.position)
             _update_hover()
@@ -388,7 +426,7 @@ func _draw() -> void:
         var point := node_positions[i]
         if not visible.intersects(Rect2(point - NODE_HALF_SIZE - Vector2(6, 6), NODE_HALF_SIZE * 2 + Vector2(12, 12))):
             continue
-        draw_style_box(node_style, Rect2(point - Vector2(65, 32), Vector2(130, 64)))
+        draw_style_box(node_style, Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2))
         if i == hovered_node:
             draw_rect(Rect2(point - NODE_HALF_SIZE, NODE_HALF_SIZE * 2), Color("8ee5cf"), false, 2.0 / camera_zoom)
         if i == dragged_node:
@@ -397,20 +435,29 @@ func _draw() -> void:
             var unit = units[i]
             var color := Color("8ee5cf") if unit.friendly else Color("f29b94")
             draw_circle(port_position(i), 7.0 * debug_ui_scale() / camera_zoom, color)
-            draw_string(ThemeDB.fallback_font, point + Vector2(-53, -8), "ALLY / OUT" if unit.friendly else "ENEMY / IN", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)
-            draw_string(ThemeDB.fallback_font, point + Vector2(-53, 17), unit.hp_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-            draw_rect(Rect2(point + Vector2(-53, 24), Vector2(106, 3)), Color("152a25"))
-            draw_rect(Rect2(point + Vector2(-53, 24), Vector2(106 * unit.hp / unit.max_hp, 3)), color)
+            draw_string(ThemeDB.fallback_font, point + Vector2(-68, -12), "ALLY / OUT" if unit.friendly else "ENEMY / IN", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, color)
+            draw_string(ThemeDB.fallback_font, point + Vector2(-68, 14), unit.hp_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+            draw_rect(Rect2(point + Vector2(-68, 26), Vector2(136, 4)), Color("152a25"))
+            draw_rect(Rect2(point + Vector2(-68, 26), Vector2(136 * unit.hp / unit.max_hp, 4)), color)
         else:
-            draw_circle(point + Vector2(-65, 0), 6, Color("8ee5cf"))
-            draw_circle(point + Vector2(65, 0), 6, Color("8ee5cf"))
+            draw_circle(point + Vector2(-NODE_HALF_SIZE.x, 0), 6, Color("8ee5cf"))
+            draw_circle(point + Vector2(NODE_HALF_SIZE.x, 0), 6, Color("8ee5cf"))
             draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
-    draw_style_box(hud_style, Rect2(14, 14, minf(size.x - 28, 570), 116))
-    draw_string(ThemeDB.fallback_font, Vector2(28, 40), "NodeNexus / NODE PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("d5efba"))
-    draw_string(ThemeDB.fallback_font, Vector2(28, 65), "RMB drag: pan  /  Wheel: zoom", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
-    draw_string(ThemeDB.fallback_font, Vector2(28, 89), "Touch: 2-finger pan / pinch / hold + drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
-    draw_string(ThemeDB.fallback_font, Vector2(28, 113), "Node body: left drag / 1-finger drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+    var hud := hud_rect()
+    draw_style_box(hud_style, hud)
+    if get_window().size.x < 700 or get_window().size.y < 500:
+        var scale := debug_ui_scale()
+        draw_string(ThemeDB.fallback_font, hud.position + Vector2(10, 22) * scale, "NodeNexus", HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(16 * scale), Color("d5efba"))
+        var hints := ["Node drag: move", "2 fingers: pan", "Pinch: zoom", "Port drag: connect", "Port tap: unlink"]
+        for line in range(hints.size()):
+            draw_string(ThemeDB.fallback_font, hud.position + Vector2(10, 42 + line * 20) * scale, hints[line], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(12 * scale))
+    else:
+        draw_string(ThemeDB.fallback_font, Vector2(28, 40), "NodeNexus / NODE PROTOTYPE", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("d5efba"))
+        draw_string(ThemeDB.fallback_font, Vector2(28, 65), "RMB drag: pan  /  Wheel: zoom", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+        draw_string(ThemeDB.fallback_font, Vector2(28, 89), "Touch: 2-finger pan / pinch / hold + drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+        draw_string(ThemeDB.fallback_font, Vector2(28, 113), "Node body: left drag / 1-finger drag", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+        draw_string(ThemeDB.fallback_font, Vector2(28, 137), "Port: drag to connect / tap to disconnect", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
     var menu := debug_menu_rect()
     var ui_scale := debug_ui_scale()
     draw_style_box(hud_style, menu)
@@ -429,7 +476,7 @@ func _draw() -> void:
     var frame := Rect2(mini.position + view.position * ratio, view.size * ratio)
     draw_rect(frame, Color(0.9, 1.0, 0.8, 0.12))
     draw_rect(frame, Color("e0f2b2"), false, 2)
-    draw_string(ThemeDB.fallback_font, mini.position - Vector2(0, 12), "MAP  /  %d%%" % roundi(camera_zoom * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
+    draw_string(ThemeDB.fallback_font, mini.position - Vector2(0, 12), "MAP  /  %d%%" % roundi(camera_zoom * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * debug_ui_scale()))
     if touch_right:
         draw_circle(hold_origin, 18, Color("e0f2b2"), false, 2)
 

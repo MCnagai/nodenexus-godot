@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const evidence = path.join(root, 'build', 'evidence');
 const near = (data, offset, rgb) => rgb.every((value, i) => Math.abs(data[offset + i] - value) <= 2);
 const image = buffer => PNG.sync.read(buffer);
+const hasWireAt = (png, x, y) => [-2, -1, 0, 1, 2].some(dy => near(png.data, ((Math.round(y) + dy) * png.width + Math.round(x)) * 4, [224, 242, 178]));
 
 function changedPixels(before, after) {
   const a = image(before), b = image(after);
@@ -42,6 +43,7 @@ async function run() {
     for (const [name, options] of [
       ['desktop', { viewport: { width: 1280, height: 720 } }],
       ['mobile', { viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 }],
+      ['mobile-landscape', { viewport: { width: 915, height: 412 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 }],
     ]) {
       const page = await browser.newPage(options);
       const errors = [];
@@ -148,16 +150,20 @@ async function run() {
       assert.ok(!warm || warm.transfer === 0, `${name}: engine was downloaded again instead of using browser cache`);
       await page.waitForTimeout(400);
       // Reload reset the camera: generate a pair through the visible debug menu.
-      const worldScale = options.viewport.width / 1280;
-      const uiScale = Math.min(3, 1 / worldScale);
+      const referenceHeight = options.viewport.height < 500 && options.viewport.width > options.viewport.height ? 320 : 720;
+      const worldScale = Math.min(options.viewport.width / 480, options.viewport.height / referenceHeight);
+      const uiScale = Math.max(1, Math.min(3, 1 / worldScale));
       const uiX = options.viewport.width - 114 * uiScale * worldScale;
       const activate = async (x, y) => options.hasTouch ? page.touchscreen.tap(x, y) : page.mouse.click(x, y);
       await activate(uiX, 72 * uiScale * worldScale);
       await activate(uiX, 130 * uiScale * worldScale);
       await page.waitForTimeout(300);
-      const portY = options.viewport.height / 2 + 140 * worldScale;
-      const outX = options.viewport.width / 2 - 105 * worldScale;
-      const inX = options.viewport.width / 2 + 105 * worldScale;
+      const vertical = Math.min(140, Math.max(0, options.viewport.height / worldScale / 2 - 38 - 24));
+      const portY = options.viewport.height / 2 + vertical * worldScale;
+      const horizontal = Math.min(170, Math.max(0, options.viewport.width / worldScale / 2 - 80 - 24) * 0.8);
+      const outX = options.viewport.width / 2 - (horizontal - 80) * worldScale;
+      const inX = options.viewport.width / 2 + (horizontal - 80) * worldScale;
+      const connectDebugPorts = async () => {
       if (options.hasTouch) {
         const session = await page.context().newCDPSession(page);
         await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: outX, y: portY, id: 0 }] });
@@ -170,19 +176,33 @@ async function run() {
         await page.mouse.move(inX, portY, { steps: 8 });
         await page.mouse.up();
       }
+      };
+      await connectDebugPorts();
       await page.waitForTimeout(300);
       const connected = image(await page.screenshot({ scale: 'css' }));
       await fs.writeFile(path.join(evidence, `${name}-wire.png`), await page.screenshot({ scale: 'css' }));
-      const wirePixel = (Math.round(portY) * connected.width + Math.round(options.viewport.width / 2)) * 4;
-      assert.ok(near(connected.data, wirePixel, [224, 242, 178]), `${name}: debug ports did not create a visible connection`);
-      const hpArea = { x: Math.floor(options.viewport.width / 2 - 225 * worldScale), y: Math.floor(portY - 24 * worldScale), width: Math.ceil(110 * worldScale), height: Math.ceil(52 * worldScale) };
+      assert.ok(hasWireAt(connected, options.viewport.width / 2, portY), `${name}: debug ports did not create a visible connection`);
+      const hpArea = { x: Math.floor(options.viewport.width / 2 - (horizontal + 68) * worldScale), y: Math.floor(portY - 30 * worldScale), width: Math.ceil(136 * worldScale), height: Math.ceil(64 * worldScale) };
       const hpBefore = await page.screenshot({ clip: hpArea, scale: 'css' });
       await page.waitForTimeout(1300);
       const hpAfter = await page.screenshot({ clip: hpArea, scale: 'css' });
       assert.ok(changedPixels(hpBefore, hpAfter) > 3, `${name}: connected unit HP display did not change`);
       await fs.writeFile(path.join(evidence, `${name}-combat.png`), await page.screenshot({ scale: 'css' }));
+      await activate(outX, portY);
+      await page.waitForTimeout(200);
+      const disconnected = image(await page.screenshot({ scale: 'css' }));
+      assert.ok(!hasWireAt(disconnected, options.viewport.width / 2, portY), `${name}: output tap did not disconnect`);
+      const stopped = await page.screenshot({ clip: hpArea, scale: 'css' });
+      await page.waitForTimeout(1100);
+      assert.ok(changedPixels(stopped, await page.screenshot({ clip: hpArea, scale: 'css' })) < 5, `${name}: disconnected HP kept decreasing`);
+      await connectDebugPorts();
+      await page.waitForTimeout(200);
+      await activate(inX, portY);
+      await page.waitForTimeout(200);
+      assert.ok(!hasWireAt(image(await page.screenshot({ scale: 'css' })), options.viewport.width / 2, portY), `${name}: input tap did not disconnect`);
+      await fs.writeFile(path.join(evidence, `${name}-disconnected.png`), await page.screenshot({ scale: 'css' }));
       assert.deepEqual(errors, [], `${name}: browser errors`);
-      console.log(`WEB_BROWSER_PASSED: ${name}, debug spawn/wiring/HP, node drag, map pan and zoom, repeat load uses cached engine`);
+      console.log(`WEB_BROWSER_PASSED: ${name}, debug spawn/wiring/HP/disconnect, node drag, map pan and zoom, repeat load uses cached engine`);
       await page.close();
     }
     for (const [name, response] of [

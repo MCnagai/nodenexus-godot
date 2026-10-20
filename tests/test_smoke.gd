@@ -24,6 +24,7 @@ func drag(scene: Control, index: int, position: Vector2) -> void:
     scene._input(event)
 
 func _run() -> void:
+    root.size = Vector2i(1280, 720)
     var scene = load("res://scenes/main.tscn").instantiate()
     root.add_child(scene)
     await process_frame
@@ -91,7 +92,7 @@ func _run() -> void:
     check(scene.node_positions[0] == released and scene.dragged_node == -1, "Node kept following after release")
     scene.node_positions[0] = node_start
     scene.camera_zoom = 1.0
-    button.position = scene.size / 2 + Vector2(64, 0)
+    button.position = scene.size / 2 + Vector2(scene.NODE_HALF_SIZE.x - 1, 0)
     button.pressed = true
     scene._input(button)
     check(scene.dragged_node == -1, "Port started body drag")

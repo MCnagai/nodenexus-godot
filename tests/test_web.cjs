@@ -76,7 +76,7 @@ async function run() {
       else await page.mouse.click(fixtureX, fixtureY);
       await page.waitForTimeout(300);
       const fixtureHorizontal = Math.min(170, Math.max(0, options.viewport.width / fixtureScale / 2 - 80 - 24) * 0.8);
-      const fixtureVertical = Math.min(140, Math.max(0, options.viewport.height / fixtureScale / 2 - 38 - 24));
+      const fixtureVertical = Math.min(140, Math.max(0, options.viewport.height / fixtureScale / 2 - 38 - 160 * fixtureUiScale));
       const source = { x: options.viewport.width / 2 - fixtureHorizontal * fixtureScale, y: options.viewport.height / 2 + fixtureVertical * fixtureScale };
       const target = { x: options.viewport.width / 2, y: options.viewport.height / 2 };
       if (options.hasTouch) {
@@ -170,8 +170,18 @@ async function run() {
       await activate(uiX, 72 * uiScale * worldScale);
       await activate(uiX, 130 * uiScale * worldScale);
       await page.waitForTimeout(300);
-      const vertical = Math.min(140, Math.max(0, options.viewport.height / worldScale / 2 - 38 - 24));
+      const vertical = Math.min(140, Math.max(0, options.viewport.height / worldScale / 2 - 38 - 160 * uiScale));
       const portY = options.viewport.height / 2 + vertical * worldScale;
+      const initialHorizontal = Math.min(170, Math.max(0, options.viewport.width / worldScale / 2 - 80 - 24) * 0.8);
+      const allyBodyX = options.viewport.width / 2 - initialHorizontal * worldScale;
+      const equip = async slot => {
+        await activate(80 * uiScale * worldScale, options.viewport.height - 36 * uiScale * worldScale);
+        await activate((48 + slot * 48) * uiScale * worldScale, options.viewport.height - 248 * uiScale * worldScale);
+        await activate(allyBodyX, portY);
+      };
+      await equip(1);
+      await equip(2);
+      await fs.writeFile(path.join(evidence, `${name}-blocks.png`), await page.screenshot({ scale: 'css' }));
       const horizontal = Math.min(170, Math.max(0, options.viewport.width / worldScale / 2 - 80 - 24) * 0.8);
       let outX = options.viewport.width / 2 - (horizontal - 80) * worldScale;
       let inX = options.viewport.width / 2 + (horizontal - 80) * worldScale;
@@ -230,7 +240,7 @@ async function run() {
       await page.waitForTimeout(7000);
       const dropped = image(await page.screenshot({ scale: 'css' }));
       const gold = [];
-      for (let y = 170; y < dropped.height - 60; y++) {
+      for (let y = 0; y < dropped.height - 60; y++) {
         for (let x = 0; x < dropped.width; x++) {
           if (near(dropped.data, (y * dropped.width + x) * 4, [244, 204, 82])) gold.push({ x, y });
         }

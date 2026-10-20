@@ -29,6 +29,15 @@ var drops: Dictionary = {}
 var next_drop_id := 0
 var money_count := 0
 var inventory_open := false
+var block_stock: Dictionary = {"sword": 2, "herb": 1}
+var block_effects: Dictionary = {"sword": 2.0, "herb": 1.0}
+var enemy_loadout: Array[String] = ["sword"]
+var pending_item := ""
+var selected_block_node := -1
+var selected_block_index := -1
+var action_press := Vector2.ZERO
+var action_pending := false
+var action_uses_touch := false
 var pickup_id := -1
 var pickup_origin := Vector2.ZERO
 var pickup_uses_touch := false
@@ -118,8 +127,17 @@ func debug_button_rect(friendly: bool) -> Rect2:
 func _debug_ui_press(point: Vector2) -> void:
     if inventory_button_rect().has_point(point):
         inventory_open = not inventory_open
+        pending_item = ""
+        selected_block_node = -1
         queue_redraw()
     elif inventory_open and inventory_rect().has_point(point):
+        for slot in [1, 2]:
+            var kind := "sword" if slot == 1 else "herb"
+            if inventory_cell_rect(slot).has_point(point) and int(block_stock.get(kind, 0)) > 0:
+                pending_item = kind
+                inventory_open = false
+                selected_block_node = -1
+                queue_redraw()
         return
     elif debug_button_rect(true).has_point(point):
         spawn_unit(true)
@@ -134,7 +152,7 @@ func spawn_unit(friendly: bool) -> int:
         if unit.friendly == friendly:
             count += 1
     var horizontal := minf(170.0, maxf(0.0, size.x / 2 - NODE_HALF_SIZE.x - 24) * 0.8)
-    var vertical := minf(140.0 + (count % 4) * 100, maxf(0.0, size.y / 2 - NODE_HALF_SIZE.y - 24))
+    var vertical := minf(140.0 + (count % 4) * 100, maxf(0.0, size.y / 2 - NODE_HALF_SIZE.y - 160 * debug_ui_scale()))
     var offset := Vector2(side * horizontal, vertical) / camera_zoom
     var screen_center := size / 2 + offset * camera_zoom
     var body := Rect2(screen_center - NODE_HALF_SIZE * camera_zoom, NODE_HALF_SIZE * 2 * camera_zoom)
@@ -143,6 +161,8 @@ func spawn_unit(friendly: bool) -> int:
     var point := screen_to_world(screen_center).clamp(NODE_HALF_SIZE, MAP_SIZE - NODE_HALF_SIZE)
     node_positions.append(point)
     units[index] = DebugUnit.new(friendly)
+    if not friendly:
+        units[index].blocks.assign(enemy_loadout)
     queue_redraw()
     return index
 
@@ -188,6 +208,7 @@ func _disconnect_port(index: int) -> void:
         for source in connections.keys():
             if connections[source] == index:
                 connections.erase(source)
+    _reset_disconnected_programs()
     queue_redraw()
 
 func _cancel_wire() -> void:
@@ -205,18 +226,70 @@ func _finish_wire(point: Vector2) -> void:
     elif target != -1 and units[wire_from].friendly != units[target].friendly:
         var source: int = wire_from if units[wire_from].friendly else target
         var destination: int = target if units[wire_from].friendly else wire_from
+        if connections.get(source, -1) != destination:
+            units[source].reset_program()
+            units[destination].reset_program()
         connections[source] = destination
+        _reset_disconnected_programs()
     _cancel_wire()
 
-func _tick_combat(delta: float) -> void:
+func _active_units() -> Dictionary:
     var active: Dictionary = {}
     for source in connections:
         active[source] = true
         active[connections[source]] = true
-    for index in active:
-        var defeated: bool = units[index].tick(delta)
-        if defeated and not units[index].friendly:
-            _drop_money(node_positions[index])
+    return active
+
+func _reset_disconnected_programs() -> void:
+    var active := _active_units()
+    for index in units:
+        if not active.has(index):
+            units[index].reset_program()
+
+func _execute_block(index: int, kind: String) -> void:
+    var unit = units[index]
+    var amount := float(block_effects.get(kind, 0))
+    if kind == "herb":
+        unit.heal(amount)
+        return
+    var target := -1
+    if unit.friendly:
+        target = int(connections.get(index, -1))
+    else:
+        for source in connections:
+            if connections[source] == index:
+                target = source
+                break
+    if target != -1 and units[target].take_damage(amount) and not units[target].friendly:
+        _drop_money(node_positions[target])
+
+func _tick_combat(delta: float) -> void:
+    var active := _active_units()
+    _reset_disconnected_programs()
+    var remaining := maxf(0, delta)
+    # Advance to each action boundary, so a slow frame preserves action order.
+    while remaining > 0.000001:
+        var step := remaining
+        var running := false
+        for index in active:
+            if not units[index].blocks.is_empty():
+                running = true
+                step = minf(step, maxf(0, 1.0 - units[index].elapsed))
+        if not running:
+            break
+        for index in active:
+            var unit = units[index]
+            if not unit.blocks.is_empty():
+                unit.elapsed += step
+        remaining -= step
+        for index in active:
+            var unit = units[index]
+            if not unit.blocks.is_empty() and unit.elapsed >= 0.999999:
+                unit.elapsed = maxf(0, unit.elapsed - 1.0)
+                unit.last_block = unit.next_block % unit.blocks.size()
+                var kind: String = unit.blocks[unit.last_block]
+                unit.next_block = (unit.last_block + 1) % unit.blocks.size()
+                _execute_block(index, kind)
     if not active.is_empty():
         queue_redraw()
 
@@ -290,6 +363,12 @@ func _draw_inventory() -> void:
         var cell := inventory_cell_rect(index)
         draw_style_box(node_style, cell)
         draw_rect(cell, Color("56766a"), false, scale)
+        if index in [1, 2]:
+            var kind := "sword" if index == 1 else "herb"
+            var stock := int(block_stock.get(kind, 0))
+            if stock > 0:
+                _draw_item_icon(kind, cell.position + Vector2(17, 16) * scale, 11 * scale)
+                draw_string(ThemeDB.fallback_font, cell.position + Vector2(2 * scale, cell.size.y - 4 * scale), str(stock), HORIZONTAL_ALIGNMENT_RIGHT, cell.size.x - 6 * scale, roundi(14 * scale))
         if index == 0 and money_count > 0:
             _draw_coin(cell.position + Vector2(17, 16) * scale, 11 * scale)
             var count := str(money_count)
@@ -297,6 +376,130 @@ func _draw_inventory() -> void:
             while font_size > roundi(8 * scale) and ThemeDB.fallback_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > cell.size.x - 4 * scale:
                 font_size -= 1
             draw_string(ThemeDB.fallback_font, cell.position + Vector2(2 * scale, cell.size.y - 4 * scale), count, HORIZONTAL_ALIGNMENT_RIGHT, cell.size.x - 6 * scale, font_size)
+
+func equip_block(index: int, kind: String) -> bool:
+    if not units.has(index) or not units[index].friendly or int(block_stock.get(kind, 0)) <= 0:
+        return false
+    block_stock[kind] -= 1
+    units[index].blocks.append(kind)
+    units[index].reset_program()
+    pending_item = ""
+    selected_block_node = -1
+    queue_redraw()
+    return true
+
+func edit_block(direction: int) -> void:
+    if not units.has(selected_block_node) or not units[selected_block_node].friendly:
+        return
+    var unit = units[selected_block_node]
+    if selected_block_index < 0 or selected_block_index >= unit.blocks.size():
+        return
+    if direction == 0:
+        var kind: String = unit.blocks.pop_at(selected_block_index)
+        block_stock[kind] = int(block_stock.get(kind, 0)) + 1
+        selected_block_node = -1
+    else:
+        var destination := selected_block_index + direction
+        if destination < 0 or destination >= unit.blocks.size():
+            return
+        var kind: String = unit.blocks[selected_block_index]
+        unit.blocks[selected_block_index] = unit.blocks[destination]
+        unit.blocks[destination] = kind
+        selected_block_index = destination
+    unit.reset_program()
+    queue_redraw()
+
+func block_rect(index: int, slot: int) -> Rect2:
+    var center := size / 2 + (node_positions[index] - camera_position) * camera_zoom
+    var scale := debug_ui_scale()
+    var width := maxf(NODE_HALF_SIZE.x * 2 * camera_zoom, 150 * scale)
+    return Rect2(Vector2(center.x - width / 2, center.y + NODE_HALF_SIZE.y * camera_zoom + (6 + slot * 46) * scale), Vector2(width, 42 * scale))
+
+func block_action_rect(action: int) -> Rect2:
+    var scale := debug_ui_scale()
+    return Rect2(Vector2(14 + action * 72, 176) * scale, Vector2(68, 44) * scale)
+
+func _begin_block_action(point: Vector2, from_touch: bool) -> bool:
+    var applicable := false
+    if selected_block_node != -1:
+        for action in range(3):
+            applicable = applicable or block_action_rect(action).has_point(point)
+    if not _over_ui(point):
+        if pending_item != "" and _pick_node(point) != -1:
+            applicable = true
+        for index in units:
+            for slot in range(units[index].blocks.size()):
+                applicable = applicable or block_rect(index, slot).has_point(point)
+    if applicable:
+        action_press = point
+        action_pending = true
+        action_uses_touch = from_touch
+        hold_pending = false
+    return applicable
+
+func _finish_block_action(point: Vector2) -> void:
+    if not action_pending:
+        return
+    action_pending = false
+    if point.distance_to(action_press) * get_viewport().get_stretch_transform().get_scale().x > 8:
+        return
+    if selected_block_node != -1:
+        for action in range(3):
+            if block_action_rect(action).has_point(point):
+                edit_block([-1, 1, 0][action])
+                return
+    if _over_ui(point):
+        return
+    if pending_item != "":
+        var index := _pick_node(point)
+        if index != -1:
+            equip_block(index, pending_item)
+            return
+    for index in units:
+        for slot in range(units[index].blocks.size()):
+            if block_rect(index, slot).has_point(point):
+                if units[index].friendly:
+                    selected_block_node = index
+                    selected_block_index = slot
+                    queue_redraw()
+                return
+
+func _draw_item_icon(kind: String, center: Vector2, radius: float) -> void:
+    if kind == "sword":
+        draw_line(center + Vector2(-radius * 0.6, radius * 0.6), center + Vector2(radius * 0.7, -radius * 0.7), Color("e3eef5"), radius * 0.36, true)
+        draw_line(center + Vector2(-radius * 0.7, 0), center + Vector2(0, radius * 0.7), Color("bda56b"), radius * 0.25, true)
+    else:
+        draw_line(center + Vector2(0, radius), center - Vector2(0, radius), Color("76ca70"), radius * 0.18, true)
+        draw_circle(center + Vector2(-radius * 0.35, -radius * 0.25), radius * 0.48, Color("76ca70"))
+        draw_circle(center + Vector2(radius * 0.35, radius * 0.15), radius * 0.48, Color("aadf82"))
+
+func _draw_blocks() -> void:
+    var scale := debug_ui_scale()
+    for index in units:
+        var unit = units[index]
+        for slot in range(unit.blocks.size()):
+            var rect := block_rect(index, slot)
+            if not Rect2(Vector2.ZERO, size).intersects(rect):
+                continue
+            draw_style_box(node_style, rect)
+            var color := Color("e0f2b2") if unit.last_block == slot else Color("56766a")
+            draw_rect(rect, color, false, 2 * scale)
+            if selected_block_node == index and selected_block_index == slot:
+                draw_rect(rect.grow(-3 * scale), Color("8ee5cf"), false, scale)
+            _draw_item_icon(unit.blocks[slot], rect.position + Vector2(18, 21) * scale, 11 * scale)
+            draw_string(ThemeDB.fallback_font, rect.position + Vector2(36, 27) * scale, "%d. %s" % [slot + 1, "ATK 2" if unit.blocks[slot] == "sword" else "HEAL 1"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * scale))
+
+func _draw_block_actions() -> void:
+    var scale := debug_ui_scale()
+    if pending_item != "":
+        var rect := Rect2(Vector2(14, 176) * scale, Vector2(240, 44) * scale)
+        draw_style_box(hud_style, rect)
+        draw_string(ThemeDB.fallback_font, rect.position + Vector2(10, 28) * scale, "Tap ally to equip " + pending_item, HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * scale))
+    elif selected_block_node != -1:
+        for action in range(3):
+            var rect := block_action_rect(action)
+            draw_style_box(hud_style, rect)
+            draw_string(ThemeDB.fallback_font, rect.position + Vector2(6, 28) * scale, ["UP", "DOWN", "REMOVE"][action], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(13 * scale))
 
 func _draw_wire(source: Vector2, target: Vector2, color: Color) -> void:
     var bend := maxf(50.0, absf(target.x - source.x) * 0.5)
@@ -306,7 +509,7 @@ func _draw_wire(source: Vector2, target: Vector2, color: Color) -> void:
     draw_polyline(curve.get_baked_points(), color, 2.5 * debug_ui_scale() / camera_zoom, true)
 
 func _over_ui(point: Vector2) -> bool:
-    return inventory_button_rect().has_point(point) or (inventory_open and inventory_rect().has_point(point)) or debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or hud_rect().has_point(point)
+    return (selected_block_node != -1 and (block_action_rect(0).has_point(point) or block_action_rect(1).has_point(point) or block_action_rect(2).has_point(point))) or inventory_button_rect().has_point(point) or (inventory_open and inventory_rect().has_point(point)) or debug_menu_rect().has_point(point) or minimap_rect().grow(5).has_point(point) or hud_rect().has_point(point)
 
 func _pick_node(screen_point: Vector2) -> int:
     var point := screen_to_world(screen_point)
@@ -393,6 +596,7 @@ func _notification(what: int) -> void:
     if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
         _clear_hover()
         pickup_id = -1
+        action_pending = false
         _cancel_wire()
         touches.clear()
         hold_pending = false
@@ -413,15 +617,22 @@ func _input(event: InputEvent) -> void:
             hold_origin = event.position
             touch_right = false
             if touches.size() == 1:
-                if gesture_blocked:
+                if _begin_block_action(event.position, true):
+                    pass
+                elif gesture_blocked:
                     _debug_ui_press(event.position)
                 elif not _begin_pickup(event.position, true) and not _begin_wire(event.position, true):
                     _begin_node_drag(event.position, true)
             else:
+                action_pending = false
                 pickup_id = -1
                 _cancel_wire()
                 _end_node_drag()
         else:
+            if action_uses_touch and not event.canceled and touches.size() == 1:
+                _finish_block_action(event.position)
+            else:
+                action_pending = false
             if pickup_uses_touch and touches.size() == 1 and not event.canceled:
                 _finish_pickup(event.position)
             else:
@@ -455,6 +666,8 @@ func _input(event: InputEvent) -> void:
             touches[event.index] = event.position
             if touches.size() == 1 and not gesture_blocked:
                 _update_pickup(event.position)
+                if event.position.distance_to(action_press) * get_viewport().get_stretch_transform().get_scale().x > 8:
+                    action_pending = false
                 if wire_from != -1 and wire_uses_touch:
                     _update_wire_pointer(event.position)
                 elif touch_right:
@@ -477,15 +690,20 @@ func _input(event: InputEvent) -> void:
             mouse_right = event.pressed and not _over_ui(event.position)
             if mouse_right:
                 pickup_id = -1
+                action_pending = false
                 _cancel_wire()
                 _end_node_drag()
                 context_pressed.emit(screen_to_world(event.position))
         elif event.button_index == MOUSE_BUTTON_LEFT:
             if event.pressed and not mouse_right and touches.is_empty():
-                if _over_ui(event.position):
+                if _begin_block_action(event.position, false):
+                    pass
+                elif _over_ui(event.position):
                     _debug_ui_press(event.position)
                 elif not _begin_pickup(event.position, false) and not _begin_wire(event.position, false):
                     _begin_node_drag(event.position, false)
+            elif not event.pressed and action_pending and not action_uses_touch:
+                _finish_block_action(event.position)
             elif not event.pressed and not pickup_uses_touch and pickup_id != -1:
                 _finish_pickup(event.position)
             elif not event.pressed and not wire_uses_touch:
@@ -504,6 +722,8 @@ func _input(event: InputEvent) -> void:
             mouse_present = true
             mouse_position = event.position
             _update_pickup(event.position)
+            if event.position.distance_to(action_press) * get_viewport().get_stretch_transform().get_scale().x > 8:
+                action_pending = false
             if mouse_right:
                 pan_screen(event.relative)
             elif wire_from != -1 and not wire_uses_touch:
@@ -552,6 +772,7 @@ func _draw() -> void:
             draw_circle(point + Vector2(NODE_HALF_SIZE.x, 0), 6, Color("8ee5cf"))
             draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
+    _draw_blocks()
     for drop in drops.values():
         var center: Vector2 = size / 2 + (drop.position - camera_position) * camera_zoom
         if Rect2(Vector2.ZERO, size).grow(24 * debug_ui_scale()).has_point(center):
@@ -592,6 +813,7 @@ func _draw() -> void:
     draw_rect(frame, Color("e0f2b2"), false, 2)
     draw_string(ThemeDB.fallback_font, mini.position - Vector2(0, 12), "MAP  /  %d%%" % roundi(camera_zoom * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * debug_ui_scale()))
     _draw_inventory()
+    _draw_block_actions()
     if touch_right:
         draw_circle(hold_origin, 18, Color("e0f2b2"), false, 2)
 

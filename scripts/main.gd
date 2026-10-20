@@ -281,6 +281,7 @@ func _tick_combat(delta: float) -> void:
             var unit = units[index]
             if not unit.blocks.is_empty():
                 unit.elapsed += step
+                unit.flash_remaining = maxf(0, unit.flash_remaining - step)
         remaining -= step
         for index in active:
             var unit = units[index]
@@ -289,6 +290,7 @@ func _tick_combat(delta: float) -> void:
                 unit.last_block = unit.next_block % unit.blocks.size()
                 var kind: String = unit.blocks[unit.last_block]
                 unit.next_block = (unit.last_block + 1) % unit.blocks.size()
+                unit.flash_remaining = DebugUnit.FLASH_SECONDS
                 _execute_block(index, kind)
     if not active.is_empty():
         queue_redraw()
@@ -473,8 +475,25 @@ func _draw_item_icon(kind: String, center: Vector2, radius: float) -> void:
         draw_circle(center + Vector2(-radius * 0.35, -radius * 0.25), radius * 0.48, Color("76ca70"))
         draw_circle(center + Vector2(radius * 0.35, radius * 0.15), radius * 0.48, Color("aadf82"))
 
+func block_border_points(rect: Rect2, progress: float) -> PackedVector2Array:
+    var start := Vector2(rect.get_center().x, rect.position.y)
+    var corners := PackedVector2Array([start, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y), rect.position, start])
+    var points := PackedVector2Array([start])
+    var remaining := clampf(progress, 0, 1) * 2 * (rect.size.x + rect.size.y)
+    for index in range(1, corners.size()):
+        if remaining <= 0:
+            break
+        var segment := corners[index - 1].distance_to(corners[index])
+        if remaining < segment:
+            points.append(corners[index - 1].lerp(corners[index], remaining / segment))
+            break
+        points.append(corners[index])
+        remaining -= segment
+    return points
+
 func _draw_blocks() -> void:
     var scale := debug_ui_scale()
+    var active := _active_units()
     for index in units:
         var unit = units[index]
         for slot in range(unit.blocks.size()):
@@ -482,8 +501,17 @@ func _draw_blocks() -> void:
             if not Rect2(Vector2.ZERO, size).intersects(rect):
                 continue
             draw_style_box(node_style, rect)
-            var color := Color("e0f2b2") if unit.last_block == slot else Color("56766a")
-            draw_rect(rect, color, false, 2 * scale)
+            draw_rect(rect, Color("56766a"), false, 2 * scale)
+            if active.has(index):
+                if unit.last_block == slot and unit.flash_remaining > 0:
+                    var intensity: float = unit.flash_remaining / DebugUnit.FLASH_SECONDS
+                    draw_rect(rect, Color(0.88, 0.95, 0.70, 0.22 * intensity))
+                    draw_rect(rect, Color(1, 0.96, 0.74, intensity), false, 3 * scale)
+                if unit.next_block == slot:
+                    var points := block_border_points(rect, unit.elapsed)
+                    if points.size() > 1:
+                        draw_polyline(points, Color("e0f2b2"), 3 * scale, true)
+                    draw_circle(Vector2(rect.get_center().x, rect.position.y), 2.5 * scale, Color("e0f2b2"))
             if selected_block_node == index and selected_block_index == slot:
                 draw_rect(rect.grow(-3 * scale), Color("8ee5cf"), false, scale)
             _draw_item_icon(unit.blocks[slot], rect.position + Vector2(18, 21) * scale, 11 * scale)

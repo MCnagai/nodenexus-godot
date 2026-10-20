@@ -66,6 +66,7 @@ async function run() {
       await fs.writeFile(path.join(evidence, `${name}-map.png`), initial);
       assert.ok(grassPixels > rendered.width * rendered.height * 0.3, `${name}: grass map did not render`);
       await fs.writeFile(path.join(evidence, `${name}-map.png`), initial);
+      if (process.env.WEB_TEST_SCENARIO !== "blocks") {
       // The board starts empty; create a real debug unit for movement checks.
       const fixtureReferenceHeight = options.viewport.height < 500 && options.viewport.width > options.viewport.height ? 320 : 720;
       const fixtureScale = Math.min(options.viewport.width / 480, options.viewport.height / fixtureReferenceHeight);
@@ -161,7 +162,8 @@ async function run() {
       assert.equal(await page.evaluate(() => window.nodeNexusStatus.engineCacheHit), true, `${name}: runtime cache was not reused`);
       assert.ok(!warm || warm.transfer === 0, `${name}: engine was downloaded again instead of using browser cache`);
       await page.waitForTimeout(400);
-      // Reload reset the camera: generate a pair through the visible debug menu.
+      }
+      // Fresh camera: generate a pair through the visible debug menu.
       const referenceHeight = options.viewport.height < 500 && options.viewport.width > options.viewport.height ? 320 : 720;
       const worldScale = Math.min(options.viewport.width / 480, options.viewport.height / referenceHeight);
       const uiScale = Math.max(1, Math.min(3, 1 / worldScale));
@@ -225,6 +227,15 @@ async function run() {
       await fs.writeFile(path.join(evidence, `${name}-wire.png`), await page.screenshot({ scale: 'css' }));
       assert.ok(hasWireAt(connected, wireX, portY), `${name}: debug ports did not create a visible connection`);
       const hpArea = { x: Math.floor(options.viewport.width / 2 - (horizontal + 68) * worldScale), y: Math.floor(portY - 30 * worldScale), width: Math.ceil(136 * worldScale), height: Math.ceil(64 * worldScale) };
+      const blockArea = { x: Math.floor(allyBodyX - Math.max(160 * worldScale, 150 * uiScale * worldScale) / 2 - 4),
+        y: Math.floor(portY + 38 * worldScale + 3 * uiScale * worldScale),
+        width: Math.ceil(Math.max(160 * worldScale, 150 * uiScale * worldScale) + 8),
+        height: Math.ceil(92 * uiScale * worldScale) };
+      const progressBefore = await page.screenshot({ clip: blockArea, scale: 'css' });
+      await page.waitForTimeout(300);
+      const progressAfter = await page.screenshot({ clip: blockArea, scale: 'css' });
+      assert.ok(changedPixels(progressBefore, progressAfter) > 10, `${name}: block countdown border did not animate`);
+      await fs.writeFile(path.join(evidence, `${name}-block-progress.png`), progressAfter);
       const hpBefore = await page.screenshot({ clip: hpArea, scale: 'css' });
       await page.waitForTimeout(1300);
       const hpAfter = await page.screenshot({ clip: hpArea, scale: 'css' });
@@ -235,8 +246,10 @@ async function run() {
       const disconnected = image(await page.screenshot({ scale: 'css' }));
       assert.ok(!hasWireAt(disconnected, wireX, portY), `${name}: output tap did not disconnect`);
       const stopped = await page.screenshot({ clip: hpArea, scale: 'css' });
+      const stoppedBlocks = await page.screenshot({ clip: blockArea, scale: 'css' });
       await page.waitForTimeout(1100);
       assert.ok(changedPixels(stopped, await page.screenshot({ clip: hpArea, scale: 'css' })) < 5, `${name}: disconnected HP kept decreasing`);
+      assert.ok(changedPixels(stoppedBlocks, await page.screenshot({ clip: blockArea, scale: 'css' })) < 5, `${name}: disconnected block progress kept animating`);
       await connectDebugPorts();
       await page.waitForTimeout(200);
       await activate(inX, portY);
@@ -270,10 +283,10 @@ async function run() {
       await fs.writeFile(path.join(evidence, `${name}-inventory.png`), await page.screenshot({ scale: 'css' }));
       assert.ok(inventoryGold > 10, `${name}: pickup did not put money icon into first cell`);
       assert.deepEqual(errors, [], `${name}: browser errors`);
-      console.log(`WEB_BROWSER_PASSED: ${name}, debug spawn/wiring/HP/disconnect, node drag, map pan and zoom, repeat load uses cached engine`);
+      console.log(`WEB_BROWSER_PASSED: ${name}, equip/wiring/HP/progress/disconnect/pickup${process.env.WEB_TEST_SCENARIO === "blocks" ? " (targeted blocks)" : ", node drag, camera, cached reload"}`);
       await page.close();
     }
-    for (const [name, response] of [
+    if (process.env.WEB_TEST_SCENARIO !== "blocks") for (const [name, response] of [
       ['corrupt-gzip', { status: 200, contentType: 'application/gzip', body: 'invalid compressed bytes' }],
       ['expired-session', { status: 200, contentType: 'text/html', body: '<html>Sign in</html>' }],
     ]) {

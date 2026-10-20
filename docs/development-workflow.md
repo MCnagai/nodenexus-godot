@@ -23,7 +23,7 @@ python3 tools/process.py camera-20261020 mark report_ready
 python3 tools/process.py camera-20261020 summary
 ```
 
-Scopes: `smoke`, `combat`, `code`, `preview`, `full`, `docs`. `preview` assumes a current packaged build; it does not export. Session logs contain command output: do not run commands that print credentials through the recorder. Arguments and environment variables are not automatically recorded.
+Scopes: `smoke`, `combat`, `code`, `preview`, `blocks`, `full`, `docs`. `blocks` reuses packaged output and defaults to the mobile profile; it skips unchanged camera/reload/error scenarios locally while CI retains the full suite. `preview` assumes a current packaged build; it does not export. Session logs contain command output: do not run commands that print credentials through the recorder. Arguments and environment variables are not automatically recorded.
 
 CI stores step timings and job conclusions in `ci-metrics-<run-id>` for 30 days. Preview time includes queueing; job durations overlap, so their sum is not elapsed time. A warning above 120 seconds prompts investigation. Failure screenshots are retained for seven days. No scheduled service or external notification is required.
 

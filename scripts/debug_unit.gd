@@ -6,7 +6,9 @@ var hp: float
 var blocks: Array[String] = []
 var elapsed := 0.0
 var next_block := 0
+const FLASH_SECONDS := 0.18
 var last_block := -1
+var flash_remaining := 0.0
 
 func _init(is_friendly: bool) -> void:
     friendly = is_friendly
@@ -17,6 +19,7 @@ func reset_program() -> void:
     elapsed = 0.0
     next_block = 0
     last_block = -1
+    flash_remaining = 0.0
 
 func take_damage(amount: float) -> bool:
     hp -= amount

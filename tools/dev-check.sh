@@ -20,6 +20,10 @@ case "$scope" in
     "${audit[@]}" run browser-preview npm run test:preview
     "${audit[@]}" skip browser-full 'Quick mobile startup only; full regression runs separately in CI.'
     ;;
+  blocks)
+    WEB_TEST_PROFILE=${WEB_TEST_PROFILE:-mobile} WEB_TEST_SCENARIO=blocks "${audit[@]}" run browser-blocks npm run test:web
+    "${audit[@]}" skip browser-full 'Packaged block interactions only; camera, reload and loader failure scenarios run in full CI regression.'
+    ;;
   full)
     "${audit[@]}" run godot-web ./tools/check-web.sh
     "${audit[@]}" run browser-full npm run test:web
@@ -28,5 +32,5 @@ case "$scope" in
     "${audit[@]}" run whitespace git diff --check
     "${audit[@]}" skip game-checks 'Documentation-only change; game/build/runtime files unchanged.'
     ;;
-  *) echo 'Use code, smoke, combat, preview, full, or docs' >&2; exit 2 ;;
+  *) echo 'Use code, smoke, combat, preview, blocks, full, or docs' >&2; exit 2 ;;
 esac

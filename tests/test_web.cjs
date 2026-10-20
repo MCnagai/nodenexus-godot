@@ -176,13 +176,59 @@ async function run() {
       const portY = options.viewport.height / 2 + vertical * worldScale;
       const initialHorizontal = Math.min(170, Math.max(0, options.viewport.width / worldScale / 2 - 80 - 24) * 0.8);
       const allyBodyX = options.viewport.width / 2 - initialHorizontal * worldScale;
-      const equip = async slot => {
-        await activate(80 * uiScale * worldScale, options.viewport.height - 36 * uiScale * worldScale);
-        await activate((48 + slot * 48) * uiScale * worldScale, options.viewport.height - 248 * uiScale * worldScale);
-        await activate(allyBodyX, portY);
+      const pointerDrag = async (from, to, via = []) => {
+        if (options.hasTouch) {
+          const session = await page.context().newCDPSession(page);
+          await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...from, id: 0 }] });
+          let previous = from;
+          for (const end of [...via, to]) {
+            for (let step = 1; step <= 8; step++) await session.send('Input.dispatchTouchEvent', {
+              type: 'touchMove', touchPoints: [{ x: previous.x + (end.x - previous.x) * step / 8, y: previous.y + (end.y - previous.y) * step / 8, id: 0 }] });
+            previous = end;
+          }
+          await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await session.detach();
+        } else {
+          await page.mouse.move(from.x, from.y);
+          await page.mouse.down();
+          for (const end of [...via, to]) await page.mouse.move(end.x, end.y, { steps: 8 });
+          await page.mouse.up();
+        }
       };
-      await equip(1);
-      await equip(2);
+      const itemCell = slot => ({ x: (48 + slot % 4 * 48) * uiScale * worldScale,
+        y: options.viewport.height + (-248 + Math.floor(slot / 4) * 48) * uiScale * worldScale });
+      const boxButton = { x: 80 * uiScale * worldScale, y: options.viewport.height - 36 * uiScale * worldScale };
+      const rowPoint = slot => ({ x: allyBodyX, y: portY + 38 * worldScale + (27 + slot * 46) * uiScale * worldScale });
+      const countColor = (png, center, rgb, radius = 14) => {
+        let count = 0;
+        for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
+          const x = Math.round(center.x + dx), y = Math.round(center.y + dy);
+          if (x >= 0 && y >= 0 && x < png.width && y < png.height && near(png.data, (y * png.width + x) * 4, rgb)) count++;
+        }
+        return count;
+      };
+      await activate(boxButton.x, boxButton.y);
+      await pointerDrag(itemCell(1), itemCell(5));
+      await pointerDrag(itemCell(5), itemCell(2));
+      const movedItems = image(await page.screenshot({ scale: 'css' }));
+      assert.ok(countColor(movedItems, itemCell(2), [227, 238, 245]) > 3, `${name}: sword stack did not swap cells`);
+      assert.ok(countColor(movedItems, itemCell(5), [118, 202, 112]) > 3, `${name}: herb stack did not swap cells`);
+      const equip = async (slot, open = true) => {
+        if (open) await activate(boxButton.x, boxButton.y);
+        // Pull outside the panel first, revealing any node that was behind it.
+        await pointerDrag(itemCell(slot), { x: allyBodyX, y: portY }, [{ x: 244 * uiScale * worldScale, y: portY }]);
+      };
+      await equip(2, false);
+      await equip(5);
+      await pointerDrag(rowPoint(1), rowPoint(0));
+      const iconX = allyBodyX - Math.max(160 * worldScale, 150 * uiScale * worldScale) / 2 + 18 * uiScale * worldScale;
+      const reordered = image(await page.screenshot({ scale: 'css' }));
+      assert.ok(countColor(reordered, { x: iconX, y: rowPoint(0).y }, [118, 202, 112]) > 3, `${name}: herb did not move to first row`);
+      await pointerDrag(rowPoint(0), rowPoint(1));
+      await pointerDrag(rowPoint(1), itemCell(5), [boxButton]);
+      const returned = image(await page.screenshot({ scale: 'css' }));
+      assert.ok(countColor(returned, itemCell(5), [118, 202, 112]) > 3, `${name}: block did not return to chosen cell`);
+      await equip(5, false);
       await fs.writeFile(path.join(evidence, `${name}-blocks.png`), await page.screenshot({ scale: 'css' }));
       const horizontal = Math.min(170, Math.max(0, options.viewport.width / worldScale / 2 - 80 - 24) * 0.8);
       let outX = options.viewport.width / 2 - (horizontal - 80) * worldScale;

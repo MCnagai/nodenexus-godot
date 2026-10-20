@@ -1,5 +1,6 @@
 extends Control
 
+const ItemStore = preload("res://scripts/item_store.gd")
 const DebugUnit = preload("res://scripts/debug_unit.gd")
 
 signal context_pressed(world_position: Vector2)
@@ -27,9 +28,27 @@ var wire_dragged := false
 var wire_uses_touch := false
 var drops: Dictionary = {}
 var next_drop_id := 0
-var money_count := 0
+var item_store = ItemStore.new()
+var money_count: int:
+    get:
+        return item_store.total("money")
+    set(value):
+        for index in range(16):
+            if item_store.cells[index].get("kind", "") == "money":
+                item_store.cells[index] = {}
+        if value > 0:
+            ItemStore.put(item_store.cells, "money", value)
 var inventory_open := false
-var block_stock: Dictionary = {"sword": 2, "herb": 1}
+var block_stock: Dictionary:
+    get:
+        return {"sword": item_store.total("sword"), "herb": item_store.total("herb")}
+var item_source: Dictionary = {}
+var item_pointer := Vector2.ZERO
+var item_origin := Vector2.ZERO
+var item_dragging := false
+var item_uses_touch := false
+var item_box_was_open := false
+var item_box_hidden := false
 var block_effects: Dictionary = {"sword": 2.0, "herb": 1.0}
 var enemy_loadout: Array[String] = ["sword"]
 var pending_item := ""
@@ -131,13 +150,12 @@ func _debug_ui_press(point: Vector2) -> void:
         selected_block_node = -1
         queue_redraw()
     elif inventory_open and inventory_rect().has_point(point):
-        for slot in [1, 2]:
-            var kind := "sword" if slot == 1 else "herb"
-            if inventory_cell_rect(slot).has_point(point) and int(block_stock.get(kind, 0)) > 0:
-                pending_item = kind
-                inventory_open = false
-                selected_block_node = -1
-                queue_redraw()
+        var slot := _inventory_cell_at(point)
+        if slot != -1 and item_store.cells[slot].get("kind", "") in ["sword", "herb"]:
+            pending_item = item_store.cells[slot].kind
+            inventory_open = false
+            selected_block_node = -1
+            queue_redraw()
         return
     elif debug_button_rect(true).has_point(point):
         spawn_unit(true)
@@ -341,8 +359,8 @@ func _update_pickup(point: Vector2) -> void:
 func _finish_pickup(point: Vector2) -> void:
     _update_pickup(point)
     if pickup_id != -1 and _pick_drop(point) == pickup_id:
-        money_count += int(drops[pickup_id].amount)
-        drops.erase(pickup_id)
+        if ItemStore.put(item_store.cells, "money", int(drops[pickup_id].amount)):
+            drops.erase(pickup_id)
         queue_redraw()
     pickup_id = -1
 
@@ -365,24 +383,23 @@ func _draw_inventory() -> void:
         var cell := inventory_cell_rect(index)
         draw_style_box(node_style, cell)
         draw_rect(cell, Color("56766a"), false, scale)
-        if index in [1, 2]:
-            var kind := "sword" if index == 1 else "herb"
-            var stock := int(block_stock.get(kind, 0))
-            if stock > 0:
-                _draw_item_icon(kind, cell.position + Vector2(17, 16) * scale, 11 * scale)
-                draw_string(ThemeDB.fallback_font, cell.position + Vector2(2 * scale, cell.size.y - 4 * scale), str(stock), HORIZONTAL_ALIGNMENT_RIGHT, cell.size.x - 6 * scale, roundi(14 * scale))
-        if index == 0 and money_count > 0:
+        var item: Dictionary = item_store.cells[index]
+        if item.is_empty():
+            continue
+        if item.kind == "money":
             _draw_coin(cell.position + Vector2(17, 16) * scale, 11 * scale)
-            var count := str(money_count)
-            var font_size := roundi(14 * scale)
-            while font_size > roundi(8 * scale) and ThemeDB.fallback_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > cell.size.x - 4 * scale:
-                font_size -= 1
-            draw_string(ThemeDB.fallback_font, cell.position + Vector2(2 * scale, cell.size.y - 4 * scale), count, HORIZONTAL_ALIGNMENT_RIGHT, cell.size.x - 6 * scale, font_size)
+        else:
+            _draw_item_icon(item.kind, cell.position + Vector2(17, 16) * scale, 11 * scale)
+        var count := str(item.count)
+        var font_size := roundi(14 * scale)
+        while font_size > roundi(8 * scale) and ThemeDB.fallback_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > cell.size.x - 4 * scale:
+            font_size -= 1
+        draw_string(ThemeDB.fallback_font, cell.position + Vector2(2 * scale, cell.size.y - 4 * scale), count, HORIZONTAL_ALIGNMENT_RIGHT, cell.size.x - 6 * scale, font_size)
 
 func equip_block(index: int, kind: String) -> bool:
     if not units.has(index) or not units[index].friendly or int(block_stock.get(kind, 0)) <= 0:
         return false
-    block_stock[kind] -= 1
+    item_store.consume(kind)
     units[index].blocks.append(kind)
     units[index].reset_program()
     pending_item = ""
@@ -397,8 +414,10 @@ func edit_block(direction: int) -> void:
     if selected_block_index < 0 or selected_block_index >= unit.blocks.size():
         return
     if direction == 0:
-        var kind: String = unit.blocks.pop_at(selected_block_index)
-        block_stock[kind] = int(block_stock.get(kind, 0)) + 1
+        var kind: String = unit.blocks[selected_block_index]
+        if not ItemStore.put(item_store.cells, kind, 1):
+            return
+        unit.blocks.remove_at(selected_block_index)
         selected_block_node = -1
     else:
         var destination := selected_block_index + direction
@@ -474,6 +493,148 @@ func _draw_item_icon(kind: String, center: Vector2, radius: float) -> void:
         draw_line(center + Vector2(0, radius), center - Vector2(0, radius), Color("76ca70"), radius * 0.18, true)
         draw_circle(center + Vector2(-radius * 0.35, -radius * 0.25), radius * 0.48, Color("76ca70"))
         draw_circle(center + Vector2(radius * 0.35, radius * 0.15), radius * 0.48, Color("aadf82"))
+
+func _inventory_cell_at(point: Vector2) -> int:
+    if inventory_open:
+        for slot in range(16):
+            if inventory_cell_rect(slot).has_point(point):
+                return slot
+    return -1
+
+func _friendly_programs() -> Dictionary:
+    var programs: Dictionary = {}
+    for index in units:
+        if units[index].friendly:
+            programs[index] = units[index].blocks
+    return programs
+
+func _item_target(point: Vector2) -> Dictionary:
+    var cell := _inventory_cell_at(point)
+    if cell != -1:
+        return {"cell": cell}
+    if inventory_button_rect().has_point(point):
+        return {"cell": -1}
+    if _over_ui(point):
+        return {}
+    for index in range(node_positions.size() - 1, -1, -1):
+        for slot in range(units[index].blocks.size()):
+            if block_rect(index, slot).has_point(point):
+                return {"node": index, "slot": slot} if units[index].friendly else {}
+    var index := _pick_node(point)
+    if index != -1 and units[index].friendly:
+        return {"node": index, "slot": -1}
+    return {}
+
+func _begin_item_drag(point: Vector2, from_touch: bool) -> bool:
+    var source: Dictionary = {}
+    var cell := _inventory_cell_at(point)
+    if cell != -1 and not item_store.cells[cell].is_empty():
+        source = {"cell": cell}
+    elif not _over_ui(point):
+        for index in range(node_positions.size() - 1, -1, -1):
+            for slot in range(units[index].blocks.size()):
+                if units[index].friendly and block_rect(index, slot).has_point(point):
+                    source = {"node": index, "slot": slot}
+                    break
+            if not source.is_empty():
+                break
+    if source.is_empty():
+        return false
+    item_source = source
+    item_origin = point
+    item_pointer = point
+    item_dragging = false
+    item_uses_touch = from_touch
+    item_box_was_open = inventory_open
+    item_box_hidden = false
+    action_pending = false
+    pending_item = ""
+    hold_pending = false
+    _cancel_wire()
+    _end_node_drag()
+    return true
+
+func _update_item_drag(point: Vector2) -> void:
+    item_pointer = point
+    if point.distance_to(item_origin) * get_viewport().get_stretch_transform().get_scale().x > 8:
+        item_dragging = true
+    if item_dragging:
+        if item_source.has("cell") and not item_box_hidden and not inventory_rect().has_point(point):
+            inventory_open = false
+            item_box_hidden = true
+        if inventory_button_rect().has_point(point):
+            inventory_open = true
+            item_box_hidden = true
+    queue_redraw()
+
+func _cancel_item_drag() -> void:
+    if item_source.is_empty():
+        return
+    inventory_open = item_box_was_open
+    item_source = {}
+    item_dragging = false
+    queue_redraw()
+
+func _finish_item_drag(point: Vector2) -> void:
+    _update_item_drag(point)
+    var source := item_source.duplicate()
+    var moved := item_dragging
+    var target := _item_target(point)
+    var plan: Dictionary = item_store.plan(source, target, _friendly_programs()) if moved else {}
+    _cancel_item_drag()
+    if not moved:
+        if source.has("cell"):
+            _debug_ui_press(point)
+        else:
+            _begin_block_action(point, item_uses_touch)
+            _finish_block_action(point)
+        return
+    if plan.is_empty():
+        return
+    item_store.cells.assign(plan.cells)
+    for index in plan.programs:
+        if units[index].blocks != plan.programs[index]:
+            units[index].blocks.assign(plan.programs[index])
+            units[index].reset_program()
+    selected_block_node = -1
+    pending_item = ""
+    if target.has("cell"):
+        inventory_open = true
+    elif source.has("cell"):
+        inventory_open = false
+    queue_redraw()
+
+func _draw_item_drag() -> void:
+    if not item_dragging or item_source.is_empty():
+        return
+    var scale := debug_ui_scale()
+    var kind: String
+    var count := 1
+    if item_source.has("cell"):
+        var item: Dictionary = item_store.cells[item_source.cell]
+        kind = item.kind
+        count = int(item.count)
+    else:
+        kind = units[item_source.node].blocks[item_source.slot]
+    var target := _item_target(item_pointer)
+    var valid: bool = not item_store.plan(item_source, target, _friendly_programs()).is_empty()
+    var color := Color("8ee5cf") if valid else Color("f29b94")
+    if valid:
+        var rect: Rect2
+        if target.has("cell"):
+            rect = inventory_button_rect() if target.cell == -1 else inventory_cell_rect(target.cell)
+        else:
+            rect = block_rect(target.node, target.slot) if target.slot != -1 else Rect2(size / 2 + (node_positions[target.node] - camera_position) * camera_zoom - NODE_HALF_SIZE * camera_zoom, NODE_HALF_SIZE * 2 * camera_zoom)
+        draw_rect(rect.grow(2 * scale), color, false, 3 * scale)
+    var ghost := Rect2(item_pointer + Vector2(14, -58) * scale, Vector2(112, 48) * scale)
+    ghost.position = ghost.position.clamp(Vector2.ZERO, (size - ghost.size).max(Vector2.ZERO))
+    draw_style_box(hud_style, ghost)
+    draw_rect(ghost, color, false, 2 * scale)
+    if kind == "money":
+        _draw_coin(ghost.position + Vector2(18, 24) * scale, 11 * scale)
+    else:
+        _draw_item_icon(kind, ghost.position + Vector2(18, 24) * scale, 11 * scale)
+    draw_string(ThemeDB.fallback_font, ghost.position + Vector2(35, 30) * scale, "%s x%d" % [kind.to_upper(), count], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(12 * scale))
 
 func block_border_points(rect: Rect2, progress: float) -> PackedVector2Array:
     var start := Vector2(rect.get_center().x, rect.position.y)
@@ -623,6 +784,7 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
     if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
         _clear_hover()
+        _cancel_item_drag()
         pickup_id = -1
         action_pending = false
         _cancel_wire()
@@ -645,18 +807,26 @@ func _input(event: InputEvent) -> void:
             hold_origin = event.position
             touch_right = false
             if touches.size() == 1:
-                if _begin_block_action(event.position, true):
+                if _begin_item_drag(event.position, true):
+                    pass
+                elif _begin_block_action(event.position, true):
                     pass
                 elif gesture_blocked:
                     _debug_ui_press(event.position)
                 elif not _begin_pickup(event.position, true) and not _begin_wire(event.position, true):
                     _begin_node_drag(event.position, true)
             else:
+                _cancel_item_drag()
                 action_pending = false
                 pickup_id = -1
                 _cancel_wire()
                 _end_node_drag()
         else:
+            if not item_source.is_empty() and item_uses_touch:
+                if not event.canceled and touches.size() == 1:
+                    _finish_item_drag(event.position)
+                else:
+                    _cancel_item_drag()
             if action_uses_touch and not event.canceled and touches.size() == 1:
                 _finish_block_action(event.position)
             else:
@@ -680,6 +850,11 @@ func _input(event: InputEvent) -> void:
         if not touches.has(event.index):
             return
         var previous: Vector2 = touches[event.index]
+        if touches.size() == 1 and item_uses_touch and not item_source.is_empty():
+            touches[event.index] = event.position
+            _update_item_drag(event.position)
+            get_viewport().set_input_as_handled()
+            return
         if touches.size() == 2 and not gesture_blocked:
             var ids := touches.keys()
             var other: Vector2 = touches[ids[1] if ids[0] == event.index else ids[0]]
@@ -715,6 +890,7 @@ func _input(event: InputEvent) -> void:
         mouse_present = true
         mouse_position = event.position
         if event.button_index == MOUSE_BUTTON_RIGHT:
+            _cancel_item_drag()
             mouse_right = event.pressed and not _over_ui(event.position)
             if mouse_right:
                 pickup_id = -1
@@ -724,12 +900,16 @@ func _input(event: InputEvent) -> void:
                 context_pressed.emit(screen_to_world(event.position))
         elif event.button_index == MOUSE_BUTTON_LEFT:
             if event.pressed and not mouse_right and touches.is_empty():
-                if _begin_block_action(event.position, false):
+                if _begin_item_drag(event.position, false):
+                    pass
+                elif _begin_block_action(event.position, false):
                     pass
                 elif _over_ui(event.position):
                     _debug_ui_press(event.position)
                 elif not _begin_pickup(event.position, false) and not _begin_wire(event.position, false):
                     _begin_node_drag(event.position, false)
+            elif not event.pressed and not item_uses_touch and not item_source.is_empty():
+                _finish_item_drag(event.position)
             elif not event.pressed and action_pending and not action_uses_touch:
                 _finish_block_action(event.position)
             elif not event.pressed and not pickup_uses_touch and pickup_id != -1:
@@ -739,7 +919,7 @@ func _input(event: InputEvent) -> void:
                 _end_node_drag()
             elif not event.pressed and not drag_uses_touch:
                 _end_node_drag()
-        elif event.pressed and not _over_ui(event.position):
+        elif event.pressed and item_source.is_empty() and not _over_ui(event.position):
             if event.button_index == MOUSE_BUTTON_WHEEL_UP:
                 zoom_at(1.12, event.position)
             elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
@@ -749,6 +929,9 @@ func _input(event: InputEvent) -> void:
         if event.device != InputEvent.DEVICE_ID_EMULATION:
             mouse_present = true
             mouse_position = event.position
+            if not item_uses_touch and not item_source.is_empty():
+                _update_item_drag(event.position)
+                return
             _update_pickup(event.position)
             if event.position.distance_to(action_press) * get_viewport().get_stretch_transform().get_scale().x > 8:
                 action_pending = false
@@ -842,6 +1025,7 @@ func _draw() -> void:
     draw_string(ThemeDB.fallback_font, mini.position - Vector2(0, 12), "MAP  /  %d%%" % roundi(camera_zoom * 100), HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * debug_ui_scale()))
     _draw_inventory()
     _draw_block_actions()
+    _draw_item_drag()
     if touch_right:
         draw_circle(hold_origin, 18, Color("e0f2b2"), false, 2)
 

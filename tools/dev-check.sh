@@ -12,7 +12,7 @@ case "$scope" in
     "${audit[@]}" run godot-web ./tools/check-web.sh
     "${audit[@]}" skip browser-full 'CI runs full regression after build, in parallel with protected preview deployment.'
     ;;
-  smoke|combat)
+  smoke|combat|items)
     "${audit[@]}" run "godot-$scope" ./tools/godot.sh --headless --script "res://tests/test_$scope.gd"
     "${audit[@]}" skip browser-full 'Targeted local check; final export and regression run once in CI.'
     ;;
@@ -32,5 +32,5 @@ case "$scope" in
     "${audit[@]}" run whitespace git diff --check
     "${audit[@]}" skip game-checks 'Documentation-only change; game/build/runtime files unchanged.'
     ;;
-  *) echo 'Use code, smoke, combat, preview, blocks, full, or docs' >&2; exit 2 ;;
+  *) echo 'Use code, smoke, combat, items, preview, blocks, full, or docs' >&2; exit 2 ;;
 esac

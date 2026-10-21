@@ -13,6 +13,8 @@ const HOLD_SECONDS := 0.5
 const HOLD_SLOP := 12.0
 const NODE_HALF_SIZE := Vector2(80, 38)
 const PORT_HIT_RADIUS := 12.0
+const DROP_RADIUS := 16.0
+const DROP_HIT_RADIUS := 24.0
 
 var camera_position := MAP_SIZE / 2.0
 var camera_zoom := 1.0
@@ -338,9 +340,9 @@ func _drop_money(point: Vector2) -> void:
 func _pick_drop(point: Vector2) -> int:
     if _over_ui(point):
         return -1
+    var world := screen_to_world(point)
     for id in drops.keys():
-        var center: Vector2 = size / 2 + (drops[id].position - camera_position) * camera_zoom
-        if point.distance_to(center) <= 24 * debug_ui_scale():
+        if world.distance_to(drops[id].position) <= DROP_HIT_RADIUS:
             return id
     return -1
 
@@ -987,12 +989,14 @@ func _draw() -> void:
             draw_string(ThemeDB.fallback_font, point + Vector2(-40, 6), "NODE %02d" % (i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("e2f1df"))
     draw_set_transform(Vector2.ZERO)
     _draw_blocks()
+    draw_set_transform(size / 2 - camera_position * camera_zoom, 0, Vector2.ONE * camera_zoom)
+    var drop_view := visible_world_rect().grow(DROP_HIT_RADIUS)
     for drop in drops.values():
-        var center: Vector2 = size / 2 + (drop.position - camera_position) * camera_zoom
-        if Rect2(Vector2.ZERO, size).grow(24 * debug_ui_scale()).has_point(center):
-            _draw_coin(center, 16 * debug_ui_scale())
+        if drop_view.has_point(drop.position):
+            _draw_coin(drop.position, DROP_RADIUS)
             if drop.amount > 1:
-                draw_string(ThemeDB.fallback_font, center + Vector2(10, 22) * debug_ui_scale(), str(drop.amount), HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * debug_ui_scale()))
+                draw_string(ThemeDB.fallback_font, drop.position + Vector2(10, 22), str(drop.amount), HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+    draw_set_transform(Vector2.ZERO)
     var hud := hud_rect()
     draw_style_box(hud_style, hud)
     if get_window().size.x < 700 or get_window().size.y < 500:

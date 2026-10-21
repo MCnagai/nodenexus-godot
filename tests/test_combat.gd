@@ -203,5 +203,22 @@ func _run() -> void:
     check(scene.money_count == 3, "Touch pickup failed")
     for cell in range(16):
         check(scene.inventory_rect().encloses(scene.inventory_cell_rect(cell)), "Cell outside inventory")
+    # Pickup bounds use the same world coordinates as the zoomed drop icon.
+    for zoom in [0.3, 1.0, 2.5]:
+        scene.camera_zoom = zoom
+        scene.drops.clear()
+        scene._drop_money(scene.camera_position)
+        var center: Vector2 = screen(scene, scene.drops.values()[0].position)
+        var id: int = scene.drops.keys()[0]
+        check(scene._pick_drop(center + Vector2(23.9 * zoom, 0)) == id, "Zoomed drop lost its inner pickup edge")
+        check(scene._pick_drop(center + Vector2(24.1 * zoom, 0)) == -1, "Drop pickup radius stayed in screen pixels")
+        var before: int = scene.money_count
+        click(scene, center, true)
+        click(scene, center, false)
+        check(scene.money_count == before + 1 and scene.drops.is_empty(), "Mouse pickup failed at changed zoom")
+        scene._drop_money(scene.camera_position)
+        touch(scene, center, true)
+        touch(scene, center, false)
+        check(scene.money_count == before + 2 and scene.drops.is_empty(), "Touch pickup failed at changed zoom")
     print("COMBAT_TEST_PASSED" if failures == 0 else "COMBAT_TEST_FAILED")
     quit(0 if failures == 0 else 1)

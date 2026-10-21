@@ -198,7 +198,7 @@ async function run() {
       const itemCell = slot => ({ x: (48 + slot % 4 * 48) * uiScale * worldScale,
         y: options.viewport.height + (-248 + Math.floor(slot / 4) * 48) * uiScale * worldScale });
       const boxButton = { x: 80 * uiScale * worldScale, y: options.viewport.height - 36 * uiScale * worldScale };
-      const rowPoint = slot => ({ x: allyBodyX, y: portY + 38 * worldScale + (27 + slot * 46) * uiScale * worldScale });
+      const rowPoint = slot => ({ x: allyBodyX, y: portY + (38 + 27 + slot * 46) * worldScale });
       const countColor = (png, center, rgb, radius = 14) => {
         let count = 0;
         for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
@@ -221,7 +221,7 @@ async function run() {
       await equip(2, false);
       await equip(5);
       await pointerDrag(rowPoint(1), rowPoint(0));
-      const iconX = allyBodyX - Math.max(160 * worldScale, 150 * uiScale * worldScale) / 2 + 18 * uiScale * worldScale;
+      const iconX = allyBodyX - 80 * worldScale + 18 * worldScale;
       const reordered = image(await page.screenshot({ scale: 'css' }));
       assert.ok(countColor(reordered, { x: iconX, y: rowPoint(0).y }, [118, 202, 112]) > 3, `${name}: herb did not move to first row`);
       await pointerDrag(rowPoint(0), rowPoint(1));
@@ -273,10 +273,10 @@ async function run() {
       await fs.writeFile(path.join(evidence, `${name}-wire.png`), await page.screenshot({ scale: 'css' }));
       assert.ok(hasWireAt(connected, wireX, portY), `${name}: debug ports did not create a visible connection`);
       const hpArea = { x: Math.floor(options.viewport.width / 2 - (horizontal + 68) * worldScale), y: Math.floor(portY - 30 * worldScale), width: Math.ceil(136 * worldScale), height: Math.ceil(64 * worldScale) };
-      const blockArea = { x: Math.floor(allyBodyX - Math.max(160 * worldScale, 150 * uiScale * worldScale) / 2 - 4),
-        y: Math.floor(portY + 38 * worldScale + 3 * uiScale * worldScale),
-        width: Math.ceil(Math.max(160 * worldScale, 150 * uiScale * worldScale) + 8),
-        height: Math.ceil(92 * uiScale * worldScale) };
+      const blockArea = { x: Math.floor(allyBodyX - 80 * worldScale - 4),
+        y: Math.floor(portY + 41 * worldScale),
+        width: Math.ceil(160 * worldScale + 8),
+        height: Math.ceil(92 * worldScale) };
       const progressBefore = await page.screenshot({ clip: blockArea, scale: 'css' });
       await page.waitForTimeout(300);
       const progressAfter = await page.screenshot({ clip: blockArea, scale: 'css' });

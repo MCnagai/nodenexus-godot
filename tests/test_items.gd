@@ -127,5 +127,23 @@ func _run() -> void:
     check(store.cells == snapshot, "Failed transaction mutated inventory")
     check(store.plan({"cell": 1}, {"node": 0, "slot": -1}, {0: []}).is_empty(), "Money became an action block")
     check(store.plan({"node": 0, "slot": 0}, {"cell": 1}, {0: ["herb"]}).is_empty(), "Action block replaced money")
+    # Blocks must keep the same world proportions as their node at every zoom.
+    scene.inventory_open = false
+    scene.selected_block_node = -1
+    scene.node_positions[ally] = scene.camera_position + Vector2(-100, -40)
+    scene.camera_zoom = 1.0
+    var base: Rect2 = scene.block_rect(ally, 0)
+    var base_center: Vector2 = scene.size / 2 + (scene.node_positions[ally] - scene.camera_position)
+    for zoom in [0.3, 1.0, 2.5]:
+        scene.camera_zoom = zoom
+        scene.units[ally].blocks.assign(["sword", "herb"])
+        var rect: Rect2 = scene.block_rect(ally, 0)
+        var node_center: Vector2 = scene.size / 2 + (scene.node_positions[ally] - scene.camera_position) * zoom
+        check(rect.size.is_equal_approx(base.size * zoom), "Block size did not follow node zoom")
+        check((rect.position - node_center).is_equal_approx((base.position - base_center) * zoom), "Block offset detached from node during zoom")
+        check(is_equal_approx(rect.size.x, scene.NODE_HALF_SIZE.x * 2 * zoom), "Block width no longer matches node")
+        check(scene._item_target(rect.get_center()).get("slot", -1) == 0, "Drop hit region disagrees with zoomed block")
+        move_item(scene, scene.block_rect(ally, 1).get_center(), rect.get_center(), true)
+        check(scene.units[ally].blocks == ["herb", "sword"], "Touch reorder failed at changed zoom")
     print("ITEM_DRAG_TEST_PASSED" if failures == 0 else "ITEM_DRAG_TEST_FAILED")
     quit(0 if failures == 0 else 1)

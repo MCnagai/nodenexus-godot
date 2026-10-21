@@ -430,11 +430,12 @@ func edit_block(direction: int) -> void:
     unit.reset_program()
     queue_redraw()
 
+func block_world_rect(index: int, slot: int) -> Rect2:
+    return Rect2(node_positions[index] + Vector2(-NODE_HALF_SIZE.x, NODE_HALF_SIZE.y + 6 + slot * 46), Vector2(NODE_HALF_SIZE.x * 2, 42))
+
 func block_rect(index: int, slot: int) -> Rect2:
-    var center := size / 2 + (node_positions[index] - camera_position) * camera_zoom
-    var scale := debug_ui_scale()
-    var width := maxf(NODE_HALF_SIZE.x * 2 * camera_zoom, 150 * scale)
-    return Rect2(Vector2(center.x - width / 2, center.y + NODE_HALF_SIZE.y * camera_zoom + (6 + slot * 46) * scale), Vector2(width, 42 * scale))
+    var world := block_world_rect(index, slot)
+    return Rect2(size / 2 + (world.position - camera_position) * camera_zoom, world.size * camera_zoom)
 
 func block_action_rect(action: int) -> Rect2:
     var scale := debug_ui_scale()
@@ -653,30 +654,32 @@ func block_border_points(rect: Rect2, progress: float) -> PackedVector2Array:
     return points
 
 func _draw_blocks() -> void:
-    var scale := debug_ui_scale()
+    draw_set_transform(size / 2 - camera_position * camera_zoom, 0, Vector2.ONE * camera_zoom)
+    var visible := visible_world_rect()
     var active := _active_units()
     for index in units:
         var unit = units[index]
         for slot in range(unit.blocks.size()):
-            var rect := block_rect(index, slot)
-            if not Rect2(Vector2.ZERO, size).intersects(rect):
+            var rect := block_world_rect(index, slot)
+            if not visible.intersects(rect):
                 continue
             draw_style_box(node_style, rect)
-            draw_rect(rect, Color("56766a"), false, 2 * scale)
+            draw_rect(rect, Color("56766a"), false, 2)
             if active.has(index):
                 if unit.last_block == slot and unit.flash_remaining > 0:
                     var intensity: float = unit.flash_remaining / DebugUnit.FLASH_SECONDS
                     draw_rect(rect, Color(0.88, 0.95, 0.70, 0.22 * intensity))
-                    draw_rect(rect, Color(1, 0.96, 0.74, intensity), false, 3 * scale)
+                    draw_rect(rect, Color(1, 0.96, 0.74, intensity), false, 3)
                 if unit.next_block == slot:
                     var points := block_border_points(rect, unit.elapsed)
                     if points.size() > 1:
-                        draw_polyline(points, Color("e0f2b2"), 3 * scale, true)
-                    draw_circle(Vector2(rect.get_center().x, rect.position.y), 2.5 * scale, Color("e0f2b2"))
+                        draw_polyline(points, Color("e0f2b2"), 3, true)
+                    draw_circle(Vector2(rect.get_center().x, rect.position.y), 2.5, Color("e0f2b2"))
             if selected_block_node == index and selected_block_index == slot:
-                draw_rect(rect.grow(-3 * scale), Color("8ee5cf"), false, scale)
-            _draw_item_icon(unit.blocks[slot], rect.position + Vector2(18, 21) * scale, 11 * scale)
-            draw_string(ThemeDB.fallback_font, rect.position + Vector2(36, 27) * scale, "%d. %s" % [slot + 1, "ATK 2" if unit.blocks[slot] == "sword" else "HEAL 1"], HORIZONTAL_ALIGNMENT_LEFT, -1, roundi(14 * scale))
+                draw_rect(rect.grow(-3), Color("8ee5cf"), false, 1)
+            _draw_item_icon(unit.blocks[slot], rect.position + Vector2(18, 21), 11)
+            draw_string(ThemeDB.fallback_font, rect.position + Vector2(36, 27), "%d. %s" % [slot + 1, "ATK 2" if unit.blocks[slot] == "sword" else "HEAL 1"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+    draw_set_transform(Vector2.ZERO)
 
 func _draw_block_actions() -> void:
     var scale := debug_ui_scale()
